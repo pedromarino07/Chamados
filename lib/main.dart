@@ -501,7 +501,17 @@ Future<void> _enviarChamado() async {
           IconButton(
             icon: const Icon(Icons.exit_to_app),
             tooltip: 'Sair',
-            onPressed: () => Navigator.pushReplacementNamed(context, '/'),
+            onPressed: () async {
+              // 1. Instala o SharedPreferences
+              final prefs = await SharedPreferences.getInstance();
+              
+              // 2. Limpa os dados salvos (remove user e pass do navegador)
+              await prefs.clear(); 
+              
+              // 3. Volta para a tela de login (/)
+              if (!context.mounted) return;
+              Navigator.pushReplacementNamed(context, '/');
+            },
           )
         ],
         bottom: TabBar(
