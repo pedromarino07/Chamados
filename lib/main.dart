@@ -578,111 +578,58 @@ Future<void> _enviarChamado() async {
         ),
       ),
           // ABA 2: HISTÓRICO
-          ListView.builder(
-            padding: const EdgeInsets.all(10),
-            // MUDANÇA AQUI: Mostra TUDO que está no banco sem filtrar por nome
-            itemCount: bancoDeDadosGlobal.where((c) => 
-              c.solicitante.toLowerCase() == _nome.text.toLowerCase()
-            ).length, // TIRE O FILTRO POR NOME!
-            itemBuilder: (ctx, i) {
-              final c = bancoDeDadosGlobal[i];
-              
-              return Card(
-                elevation: 4,
-                margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
-                color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
-                child: ExpansionTile(
-                  key: GlobalKey(),
-                  initiallyExpanded: i == _indiceExpandidoUsuario,
-                  onExpansionChanged: (expanded) {
-                    setState(() {
-                      _indiceExpandidoUsuario = expanded ? i : null;
-                    });
-                  },
-                  leading: CircleAvatar(
-                    backgroundColor: c.status == 'Finalizado'
-                        ? Colors.green
-                        : (c.status == 'Em andamento' || c.status == 'Aguardando Confirmação' ? Colors.amber : Colors.red),
-                    child: Icon(
-                      c.status == 'Finalizado' ? Icons.check : Icons.priority_high,
-                      color: Colors.white
-                    ),
-                  ),
-                  title: Text("#${c.id} - ${c.problema}"),
-                  subtitle: Text("Status: ${c.status} | Urgência: ${c.urgencia.name.toUpperCase()}"),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(15.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          Builder(
+              builder: (ctx) {
+                // 1. FILTRO: Criamos a lista filtrada apenas com os chamados do usuário atual
+                final meusChamados = bancoDeDadosGlobal.where((c) => 
+                  c.solicitante.toLowerCase() == widget.usuario!.login.toLowerCase()
+                ).toList();
+
+                // 2. RETORNO: Se não tiver chamados, avisa o usuário. Se tiver, desenha a lista.
+                if (meusChamados.isEmpty) {
+                  return const Center(child: Text("Você ainda não possui chamados abertos."));
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: meusChamados.length, // Agora o tamanho é EXATO da lista filtrada
+                  itemBuilder: (context, i) {
+                    final c = meusChamados[i]; // Pegamos o chamado da lista filtrada
+                    
+                    return Card(
+                      elevation: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+                      color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
+                      child: ExpansionTile(
+                        key: GlobalKey(), // Isso ajuda o Flutter a não bugar ao expandir
+                        title: Text("#${c.id} - ${c.problema}"),
+                        subtitle: Text("Status: ${c.status} | Urgência: ${c.urgencia.name.toUpperCase()}"),
+                        leading: CircleAvatar(
+                          backgroundColor: c.status == 'Finalizado' ? Colors.green : Colors.red,
+                          child: Icon(c.status == 'Finalizado' ? Icons.check : Icons.priority_high, color: Colors.white),
+                        ),
                         children: [
-                          Text("📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year} às ${c.dataHora.hour}:${c.dataHora.minute.toString().padLeft(2, '0')}"),
-                          if (c.dataFinalizacao != null)
-                            Text("🏁 Finalizado em: ${c.dataFinalizacao!.day}/${c.dataFinalizacao!.month}/${c.dataFinalizacao!.year} às ${c.dataFinalizacao!.hour}:${c.dataFinalizacao!.minute.toString().padLeft(2, '0')}"),
-                          Text("🏷️ Classificação: ${c.classificacao ?? 'Não definida'}"),
-                          Text("👨‍🔧 Técnico: ${c.tecnico ?? 'Não atribuído'}"),
-                          const SizedBox(height: 8),
-                          const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text(c.problema),
-                          if (c.observacoes.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            const Text("⚠️ Histórico de Reaberturas:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-                            ...c.observacoes.map((obs) => Padding(
-                              padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-                              child: Text("• $obs", style: const TextStyle(fontSize: 13)),
-                            )),
-                          ],
-                          if (c.justificativas.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            const Text("⏳ Histórico de Pendências (Técnico):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                            ...c.justificativas.map((just) => Padding(
-                              padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-                              child: Text("• $just", style: const TextStyle(fontSize: 13)),
-                            )),
-                          ],
-                          const SizedBox(height: 15),
-                          
-                          // 3. O BOTÃO DE ATENDER / FINALIZAR
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (c.status == 'A iniciar')
-                                ElevatedButton.icon(
-                                  onPressed: () => setState(() {
-                                    c.status = 'Finalizado';
-                                    c.dataFinalizacao = DateTime.now();
-                                  }),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                  icon: const Icon(Icons.cancel, color: Colors.white),
-                                  label: const Text("Cancelar", style: TextStyle(color: Colors.white)),
-                                ),
-                                
-                              if (c.status == 'Aguardando Confirmação') ...[
-                                ElevatedButton(
-                                  onPressed: () => setState(() {
-                                    c.status = 'Finalizado';
-                                    c.dataFinalizacao = DateTime.now();
-                                  }),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                  child: const Text("Solucionado", style: TextStyle(color: Colors.white)),
-                                ),
-                                const SizedBox(width: 10),
-                                ElevatedButton(
-                                  onPressed: () => _reabrirChamado(c),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                                  child: const Text("Reabrir", style: TextStyle(color: Colors.white)),
-                                ),
+                          Padding(
+                            padding: const EdgeInsets.all(15.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year}"),
+                                Text("👨‍🔧 Técnico: ${c.tecnico ?? 'Não atribuído'}"),
+                                const SizedBox(height: 10),
+                                const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                Text(c.problema),
+                                // Se o status for 'Finalizado' ou 'Aguardando', coloque seus botões aqui
                               ],
-                            ],
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-);
-            },
-          ),
+                    );
+                  },
+                );
+              },
+            ),
         ],
       ),
     );
