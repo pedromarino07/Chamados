@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Garante a inicialização do Flutter
@@ -191,22 +192,47 @@ class _TelaLoginState extends State<TelaLogin> {
     super.dispose();
   }
 
-  void _login() {
-    final user = _userController.text.trim();
-    final pass = _passController.text.trim();
+  void _login() async {
+  final user = _userController.text.trim();
+  final pass = _passController.text.trim();
 
-    try {
-      final usuarioLogado = usuariosMock.firstWhere((u) => u.login == user && u.senha == pass);
+  try {
+    // 1. Busca o usuário no Supabase em vez do Mock
+    final response = await Supabase.instance.client
+        .from('usuarios')
+        .select()
+        .eq('login', user)
+        .eq('senha', pass)
+        .maybeSingle();
+
+    if (response != null) {
+      // 2. Se achou, salva no navegador para não deslogar ao atualizar
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('sessao_user', user);
+      await prefs.setString('sessao_pass', pass);
+
+      // 3. Cria o objeto Usuario com os dados do banco
+      final usuarioLogado = Usuario(
+        login: response['login'],
+        senha: response['senha'],
+        perfil: TipoPerfil.values.firstWhere((e) => e.toString().split('.').last == response['perfil']),
+        primeiroAcesso: response['primeiro_acesso'] ?? false,
+      );
 
       if (usuarioLogado.primeiroAcesso) {
         _alterarSenhaPrimeiroAcesso(usuarioLogado);
       } else {
         _navegarParaDashboard(usuarioLogado);
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Credenciais inválidas!")));
+    } else {
+      throw Exception("Usuário não encontrado");
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Usuário ou senha incorretos!")),
+    );
   }
+}
 
   void _navegarParaDashboard(Usuario usuario) {
     if (usuario.perfil == TipoPerfil.usuario) {
@@ -309,17 +335,17 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   int? _indiceExpandidoUsuario;
 
  @override
- void initState() {
+void initState() {
   super.initState();
   _tabController = TabController(length: 2, vsync: this);
   
   if (widget.usuario != null) {
-    _nome.text = widget.usuario!.nome;
+    _nome.text = widget.usuario!.login; // Usando o login do objeto Usuario
   }
 
-  // Chama a busca ao iniciar
+  // Busca os chamados assim que a tela abre
   _buscarChamadosDoBanco();
-} // <--- Verifique se esta chave existe para fechar o initState
+}
 
 Future<void> _buscarChamadosDoBanco() async {
   try {
@@ -328,45 +354,34 @@ Future<void> _buscarChamadosDoBanco() async {
         .from('chamados')
         .select();
     
-    print("RESPOSTA BRUTA: $response");
-
-    if (response == null || (response as List).isEmpty) {
-      print("O banco retornou uma lista vazia. Verifique o RLS no Supabase.");
-      return;
-    }
+    if (response == null) return;
 
     setState(() {
       bancoDeDadosGlobal = (response as List).map((item) {
-    // 1. Tratamento seguro da Data (Onde estava o erro)
-    DateTime dataTratada;
-    try {
-      if (item['created_at'] != null && item['created_at'].toString().isNotEmpty) {
-        dataTratada = DateTime.parse(item['created_at'].toString());
-      } else {
-        dataTratada = DateTime.now(); // Se for null, usa a hora de agora
-      }
-    } catch (e) {
-      dataTratada = DateTime.now(); // Se o formato for inválido, usa agora
-    }
+        DateTime dataTratada;
+        try {
+          dataTratada = item['created_at'] != null 
+              ? DateTime.parse(item['created_at'].toString()) 
+              : DateTime.now();
+        } catch (e) {
+          dataTratada = DateTime.now();
+        }
 
-    // 2. Retorno do objeto Chamado
-    return Chamado(
-      id: item['id_chamado']?.toString() ?? 'S/ID',
-      setor: item['setor']?.toString() ?? '',
-      solicitante: item['solicitante']?.toString() ?? '',
-      problema: item['problema']?.toString() ?? '',
-      ramal: item['ramal']?.toString() ?? '',
-      status: item['status']?.toString() ?? 'A iniciar',
-      // Tratamento da urgência para não quebrar no enum
-      urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
-      dataHora: dataTratada, // Usando a data que tratamos acima
-    );
-  }).toList();
-});
-    
-    print("Sucesso! Itens processados: ${bancoDeDadosGlobal.length}");
+        return Chamado(
+          id: item['id_chamado']?.toString() ?? 'S/ID',
+          setor: item['setor']?.toString() ?? '',
+          solicitante: item['solicitante']?.toString() ?? '',
+          problema: item['problema']?.toString() ?? '',
+          ramal: item['ramal']?.toString() ?? '',
+          status: item['status']?.toString() ?? 'A iniciar',
+          urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
+          dataHora: dataTratada,
+        );
+      }).toList();
+    });
+    print("Total de chamados carregados: ${bancoDeDadosGlobal.length}");
   } catch (e) {
-    print("ERRO CRÍTICO NA BUSCA: $e");
+    print("ERRO AO BUSCAR DADOS: $e");
   }
 }
 
