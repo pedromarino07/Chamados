@@ -1,3 +1,4 @@
+import 'package:supabase_flutter/supabase_flutter.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
@@ -5,7 +6,16 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-void main() => runApp(const SistemaChamados());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized(); // Garante a inicialização do Flutter
+
+  await Supabase.initialize(
+    url: 'https://iafuxadyfuizngtzkvdf.supabase.co', 
+    anonKey: 'sb_publishable_iNfsTbEnj-wR71BGu-_Suw_ny7Exroh',
+  );
+
+  runApp(const SistemaChamados());
+}
 
 class SistemaChamados extends StatelessWidget {
   const SistemaChamados({super.key});
@@ -324,7 +334,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
     super.dispose();
   }
 
-  void _enviarChamado() {
+  void _enviarChamado() async { // <--- Adicione 'async'
     if (_problema.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Por favor, descreva o problema.")),
@@ -332,31 +342,40 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
       return;
     }
 
-    setState(() {
-      bancoDeDadosGlobal.add(Chamado(
-        id: _gerarNovoId(),
+    final novoId = _gerarNovoId();
+    final novoChamado = Chamado(
+        id: novoId,
         setor: _setorSelecionado,
         solicitante: _nome.text, 
         problema: _problema.text,
         ramal: _ramal.text,
         dataHora: DateTime.now(),
         urgencia: _urgenciaSelecionada,
-      ));
-    });
-
-    // Limpa apenas os campos de dados do chamado
-    _problema.clear();
-    _ramal.clear();
-
-    if (widget.usuario != null) {
-      _nome.text = widget.usuario!.nome; 
-    } else {
-      _nome.clear();
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Chamado enviado com sucesso!")),
     );
+
+    try {
+      // SALVANDO NO SUPABASE
+      await Supabase.instance.client.from('chamados').insert({
+        'id_chamado': novoId,
+        'setor': _setorSelecionado,
+        'solicitante': _nome.text,
+        'problema': _problema.text,
+        'ramal': _ramal.text,
+        'urgencia': _urgenciaSelecionada.index, // Salva 0, 1 ou 2
+        'status': 'A iniciar',
+      });
+
+      setState(() {
+        bancoDeDadosGlobal.add(novoChamado);
+        _ordenarPorPrioridade();
+      });
+
+      // Limpeza de campos...
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erro ao salvar no banco: $e")),
+      );
+    }
   }
 
   void _reabrirChamado(Chamado chamado) {
