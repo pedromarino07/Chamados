@@ -308,75 +308,45 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   int? _indiceExpandidoUsuario;
 
  @override
-  void initState() {
-    super.initState();
-    // Altere para 2 se for a tela do usuário comum
-    _tabController = TabController(length: 2, vsync: this); 
+void initState() {
+  super.initState();
+  _tabController = TabController(length: 2, vsync: this);
+  
+  if (widget.usuario != null) {
+    _nome.text = widget.usuario!.nome;
+  }
 
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        setState(() {}); 
-      }
+  // Chamar a busca de dados ao iniciar
+  _buscarChamadosDoBanco();
+}
+
+Future<void> _buscarChamadosDoBanco() async {
+  try {
+    final response = await Supabase.instance.client
+        .from('chamados')
+        .select()
+        .order('urgencia', ascending: false);
+
+    setState(() {
+      bancoDeDadosGlobal = (response as List).map((item) {
+        return Chamado(
+          id: item['id_chamado'],
+          setor: item['setor'],
+          solicitante: item['solicitante'],
+          problema: item['problema'],
+          ramal: item['ramal'] ?? '',
+          status: item['status'] ?? 'A iniciar',
+          urgencia: NivelUrgencia.values[item['urgencia'] ?? 1],
+          dataHora: item['created_at'] != null 
+              ? DateTime.parse(item['created_at']) 
+              : DateTime.now(),
+        );
+      }).toList();
     });
-
-    // Garante que o nome do usuário logado apareça ao abrir a tela
-    if (widget.usuario != null) {
-      _nome.text = widget.usuario!.nome;
-    }
+  } catch (e) {
+    print("Erro ao buscar dados: $e");
   }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _nome.dispose();
-    _problema.dispose();
-    _ramal.dispose();
-    super.dispose();
-  }
-
-  void _enviarChamado() async { // <--- Adicione 'async'
-    if (_problema.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Por favor, descreva o problema.")),
-      );
-      return;
-    }
-
-    final novoId = _gerarNovoId();
-    final novoChamado = Chamado(
-        id: novoId,
-        setor: _setorSelecionado,
-        solicitante: _nome.text, 
-        problema: _problema.text,
-        ramal: _ramal.text,
-        dataHora: DateTime.now(),
-        urgencia: _urgenciaSelecionada,
-    );
-
-    try {
-      // SALVANDO NO SUPABASE
-      await Supabase.instance.client.from('chamados').insert({
-        'id_chamado': novoId,
-        'setor': _setorSelecionado,
-        'solicitante': _nome.text,
-        'problema': _problema.text,
-        'ramal': _ramal.text,
-        'urgencia': _urgenciaSelecionada.index, // Salva 0, 1 ou 2
-        'status': 'A iniciar',
-      });
-
-      setState(() {
-        bancoDeDadosGlobal.add(novoChamado);
-        _ordenarPorPrioridade();
-      });
-
-      // Limpeza de campos...
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erro ao salvar no banco: $e")),
-      );
-    }
-  }
+}
 
   void _reabrirChamado(Chamado chamado) {
     final obsCtrl = TextEditingController();
