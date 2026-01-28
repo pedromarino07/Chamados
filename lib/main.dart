@@ -323,27 +323,44 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
 
 Future<void> _buscarChamadosDoBanco() async {
   try {
-    print("Tentando conectar ao Supabase...");
+    print("Iniciando busca no Supabase...");
     final response = await Supabase.instance.client
         .from('chamados')
         .select();
     
-    print("Sucesso! Dados: $response");
+    print("RESPOSTA BRUTA: $response");
+
+    if (response == null || (response as List).isEmpty) {
+      print("O banco retornou uma lista vazia. Verifique o RLS no Supabase.");
+      return;
+    }
 
     setState(() {
-      bancoDeDadosGlobal = (response as List).map((item) => Chamado(
-        id: item['id_chamado'].toString(),
-        setor: item['setor'] ?? '',
-        solicitante: item['solicitante'] ?? '',
-        problema: item['problema'] ?? '',
-        ramal: item['ramal'] ?? '',
-        status: item['status'] ?? 'A iniciar',
-        urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
-        dataHora: DateTime.parse(item['created_at']),
-      )).toList();
+      bancoDeDadosGlobal = (response as List).map((item) {
+        // Tratamento seguro da Urgência (converte o número do banco para o Enum)
+        int urgIndex = 1; // Padrão: Normal
+        if (item['urgencia'] != null) {
+          urgIndex = int.tryParse(item['urgencia'].toString()) ?? 1;
+        }
+
+        return Chamado(
+          id: item['id_chamado']?.toString() ?? 'S/ID',
+          setor: item['setor']?.toString() ?? '',
+          solicitante: item['solicitante']?.toString() ?? '',
+          problema: item['problema']?.toString() ?? '',
+          ramal: item['ramal']?.toString() ?? '',
+          status: item['status']?.toString() ?? 'A iniciar',
+          urgencia: NivelUrgencia.values[urgIndex > 2 ? 1 : urgIndex],
+          dataHora: item['created_at'] != null 
+              ? DateTime.tryParse(item['created_at'].toString()) ?? DateTime.now()
+              : DateTime.now(),
+        );
+      }).toList();
     });
+    
+    print("Sucesso! Itens processados: ${bancoDeDadosGlobal.length}");
   } catch (e) {
-    print("O ERRO É ESTE AQUI: $e"); // Se não aparecer nada no site, olhe o F12
+    print("ERRO CRÍTICO NA BUSCA: $e");
   }
 }
 
