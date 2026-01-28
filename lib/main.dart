@@ -10,10 +10,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Garante a inicialização do Flutter
 
   await Supabase.initialize(
-    url: 'https://iafuxadyfuizngtzkvdf.supabase.co', 
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZnV4YWR5ZnVpem5ndHprdmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2MTQ4NjksImV4cCI6MjA4NTE5MDg2OX0.ECeuwptw6MgDH0JPnJZbH9rdoML8Ck9sQhpoQSaF_2Y',
-  );
-
+  url: 'https://iafuxadyfuizngtzkvdf.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZnV4YWR5ZnVpem5ndHprdmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2MTQ4NjksImV4cCI6MjA4NTE5MDg2OX0.ECeuwptw6MgDH0JPnJZbH9rdoML8Ck9sQhpoQSaF_2Y',
+); 
+// 
   runApp(const SistemaChamados());
 }
 
@@ -243,6 +243,7 @@ class _TelaLoginState extends State<TelaLogin> {
 
   @override
   Widget build(BuildContext context) {
+    print("A tela carregou. Total de chamados na memória: ${bancoDeDadosGlobal.length}");
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
@@ -308,7 +309,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   int? _indiceExpandidoUsuario;
 
  @override
-void initState() {
+ void initState() {
   super.initState();
   _tabController = TabController(length: 2, vsync: this);
   
@@ -316,40 +317,50 @@ void initState() {
     _nome.text = widget.usuario!.nome;
   }
 
-  // Chamar a busca de dados ao iniciar
+  // Chama a busca ao iniciar
   _buscarChamadosDoBanco();
-}
+} // <--- Verifique se esta chave existe para fechar o initState
 
 Future<void> _buscarChamadosDoBanco() async {
   try {
+    print("Tentando conectar ao Supabase...");
     final response = await Supabase.instance.client
         .from('chamados')
-        .select()
-        .order('urgencia', ascending: false);
-
-    print("Dados recebidos: ${response.length} chamados encontrados."); // Debug essencial
+        .select();
+    
+    print("Sucesso! Dados: $response");
 
     setState(() {
-      bancoDeDadosGlobal = (response as List).map((item) {
-        return Chamado(
-          id: item['id_chamado'].toString(), // Força string para evitar erro de tipo
-          setor: item['setor'],
-          solicitante: item['solicitante'],
-          problema: item['problema'],
-          ramal: item['ramal'] ?? '',
-          status: item['status'] ?? 'A iniciar',
-          // O index deve ser int. Se o banco retornar nulo, usamos 1 (Normal)
-          urgencia: NivelUrgencia.values[item['urgencia'] is int 
-              ? item['urgencia'] 
-              : int.parse(item['urgencia'].toString())],
-          dataHora: item['created_at'] != null 
-              ? DateTime.parse(item['created_at']) 
-              : DateTime.now(),
-        );
-      }).toList();
+      bancoDeDadosGlobal = (response as List).map((item) => Chamado(
+        id: item['id_chamado'].toString(),
+        setor: item['setor'] ?? '',
+        solicitante: item['solicitante'] ?? '',
+        problema: item['problema'] ?? '',
+        ramal: item['ramal'] ?? '',
+        status: item['status'] ?? 'A iniciar',
+        urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
+        dataHora: DateTime.parse(item['created_at']),
+      )).toList();
     });
   } catch (e) {
-    print("Erro detalhado ao buscar dados: $e");
+    print("O ERRO É ESTE AQUI: $e"); // Se não aparecer nada no site, olhe o F12
+  }
+}
+
+Future<void> _enviarChamado() async {
+  try {
+    await Supabase.instance.client.from('chamados').insert({
+      'id_chamado': 'CH${DateTime.now().millisecondsSinceEpoch}',
+      'setor': _setorSelecionado,
+      'solicitante': _nome.text,
+      'problema': _problema.text,
+      'ramal': _ramal.text,
+      'urgencia': _urgenciaSelecionada.index, // Envia o número 0, 1 ou 2
+      'status': 'A iniciar',
+    });
+    await _buscarChamadosDoBanco();
+  } catch (e) {
+    print("Erro ao enviar: $e");
   }
 }
 
@@ -505,8 +516,11 @@ Future<void> _buscarChamadosDoBanco() async {
                     const SizedBox(height: 20),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-                      onPressed: _enviarChamado, 
-                      child: const Text("ABRIR CHAMADO")
+                      onPressed: () {
+                        print("Botão pressionado!"); // Adicione este print para testar
+                        _enviarChamado();
+                      }, 
+                      child: const Text("ABRIR CHAMADO"),
                     ),
                   ],
                 ),
@@ -518,10 +532,11 @@ Future<void> _buscarChamadosDoBanco() async {
           // ABA 2: HISTÓRICO
           ListView.builder(
             padding: const EdgeInsets.all(10),
-            itemCount: bancoDeDadosGlobal.where((c) => c.solicitante == _nome.text && _nome.text.isNotEmpty).length,
+            // MUDANÇA AQUI: Mostra TUDO que está no banco sem filtrar por nome
+            itemCount: bancoDeDadosGlobal.length, // TIRE O FILTRO POR NOME!
             itemBuilder: (ctx, i) {
-              final lista = bancoDeDadosGlobal.where((c) => c.solicitante == _nome.text && _nome.text.isNotEmpty).toList();
-              final c = lista[i];
+              final c = bancoDeDadosGlobal[i];
+              
               return Card(
                 elevation: 4,
                 margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
