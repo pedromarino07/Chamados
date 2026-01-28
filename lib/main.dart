@@ -556,7 +556,9 @@ Future<void> _enviarChamado() async {
           ListView.builder(
             padding: const EdgeInsets.all(10),
             // MUDANÇA AQUI: Mostra TUDO que está no banco sem filtrar por nome
-            itemCount: bancoDeDadosGlobal.length, // TIRE O FILTRO POR NOME!
+            itemCount: bancoDeDadosGlobal.where((c) => 
+              c.solicitante.toLowerCase() == _nome.text.toLowerCase()
+            ).length, // TIRE O FILTRO POR NOME!
             itemBuilder: (ctx, i) {
               final c = bancoDeDadosGlobal[i];
               
