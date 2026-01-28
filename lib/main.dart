@@ -11,7 +11,7 @@ void main() async {
 
   await Supabase.initialize(
     url: 'https://iafuxadyfuizngtzkvdf.supabase.co', 
-    anonKey: 'sb_publishable_iNfsTbEnj-wR71BGu-_Suw_ny7Exroh',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZnV4YWR5ZnVpem5ndHprdmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2MTQ4NjksImV4cCI6MjA4NTE5MDg2OX0.ECeuwptw6MgDH0JPnJZbH9rdoML8Ck9sQhpoQSaF_2Y',
   );
 
   runApp(const SistemaChamados());
@@ -327,16 +327,21 @@ Future<void> _buscarChamadosDoBanco() async {
         .select()
         .order('urgencia', ascending: false);
 
+    print("Dados recebidos: ${response.length} chamados encontrados."); // Debug essencial
+
     setState(() {
       bancoDeDadosGlobal = (response as List).map((item) {
         return Chamado(
-          id: item['id_chamado'],
+          id: item['id_chamado'].toString(), // Força string para evitar erro de tipo
           setor: item['setor'],
           solicitante: item['solicitante'],
           problema: item['problema'],
           ramal: item['ramal'] ?? '',
           status: item['status'] ?? 'A iniciar',
-          urgencia: NivelUrgencia.values[item['urgencia'] ?? 1],
+          // O index deve ser int. Se o banco retornar nulo, usamos 1 (Normal)
+          urgencia: NivelUrgencia.values[item['urgencia'] is int 
+              ? item['urgencia'] 
+              : int.parse(item['urgencia'].toString())],
           dataHora: item['created_at'] != null 
               ? DateTime.parse(item['created_at']) 
               : DateTime.now(),
@@ -344,7 +349,7 @@ Future<void> _buscarChamadosDoBanco() async {
       }).toList();
     });
   } catch (e) {
-    print("Erro ao buscar dados: $e");
+    print("Erro detalhado ao buscar dados: $e");
   }
 }
 
