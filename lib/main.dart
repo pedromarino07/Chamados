@@ -161,7 +161,7 @@ class Usuario {
 }
 
 final List<Usuario> usuariosMock = [
-  Usuario(login: 'user', senha: '123', nome: 'João Silva', perfil: TipoPerfil.usuario),
+  Usuario(login: 'JOAO SILVA', senha: '123', nome: 'JOAO SILVA', perfil: TipoPerfil.usuario),
   Usuario(login: 'tec', senha: '123', nome: 'Técnico Pedro', perfil: TipoPerfil.suporte),
   Usuario(login: 'tec', senha: '123', nome: 'Técnico Pedro', perfil: TipoPerfil.suporte, setorTecnico: SetorTecnico.hardwares),
   Usuario(login: 'ana', senha: '123', nome: 'Ana (Sistemas)', perfil: TipoPerfil.suporte, setorTecnico: SetorTecnico.sistemas),
@@ -337,26 +337,32 @@ Future<void> _buscarChamadosDoBanco() async {
 
     setState(() {
       bancoDeDadosGlobal = (response as List).map((item) {
-        // Tratamento seguro da Urgência (converte o número do banco para o Enum)
-        int urgIndex = 1; // Padrão: Normal
-        if (item['urgencia'] != null) {
-          urgIndex = int.tryParse(item['urgencia'].toString()) ?? 1;
-        }
+    // 1. Tratamento seguro da Data (Onde estava o erro)
+    DateTime dataTratada;
+    try {
+      if (item['created_at'] != null && item['created_at'].toString().isNotEmpty) {
+        dataTratada = DateTime.parse(item['created_at'].toString());
+      } else {
+        dataTratada = DateTime.now(); // Se for null, usa a hora de agora
+      }
+    } catch (e) {
+      dataTratada = DateTime.now(); // Se o formato for inválido, usa agora
+    }
 
-        return Chamado(
-          id: item['id_chamado']?.toString() ?? 'S/ID',
-          setor: item['setor']?.toString() ?? '',
-          solicitante: item['solicitante']?.toString() ?? '',
-          problema: item['problema']?.toString() ?? '',
-          ramal: item['ramal']?.toString() ?? '',
-          status: item['status']?.toString() ?? 'A iniciar',
-          urgencia: NivelUrgencia.values[urgIndex > 2 ? 1 : urgIndex],
-          dataHora: item['created_at'] != null 
-              ? DateTime.tryParse(item['created_at'].toString()) ?? DateTime.now()
-              : DateTime.now(),
-        );
-      }).toList();
-    });
+    // 2. Retorno do objeto Chamado
+    return Chamado(
+      id: item['id_chamado']?.toString() ?? 'S/ID',
+      setor: item['setor']?.toString() ?? '',
+      solicitante: item['solicitante']?.toString() ?? '',
+      problema: item['problema']?.toString() ?? '',
+      ramal: item['ramal']?.toString() ?? '',
+      status: item['status']?.toString() ?? 'A iniciar',
+      // Tratamento da urgência para não quebrar no enum
+      urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
+      dataHora: dataTratada, // Usando a data que tratamos acima
+    );
+  }).toList();
+});
     
     print("Sucesso! Itens processados: ${bancoDeDadosGlobal.length}");
   } catch (e) {
