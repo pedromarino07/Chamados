@@ -282,7 +282,7 @@ class _TelaLoginState extends State<TelaLogin> {
                   try {
                     print("Tentando atualizar senha para o login: ${usuario.login}");
 
-                                        // 1. ATUALIZA NO SUPABASE
+                    // 1. ATUALIZA NO SUPABASE
                     final response = await Supabase.instance.client
                         .from('usuarios')
                         .update({
@@ -405,13 +405,14 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
 
 Future<void> _buscarChamadosDoBanco() async {
   try {
-    final loginDigitado = _controllerLogin.text.trim().toLowerCase(); // Transforma tudo em minúsculo
+    final loginParaBusca = widget.usuario?.login.toLowerCase() ?? '';
 
+    // 2. BUSCAMOS OS CHAMADOS (não o usuário)
     final response = await Supabase.instance.client
-        .from('usuarios')
+        .from('chamados') // <--- Certifique-se que a tabela é 'chamados'
         .select()
-        .eq('login', loginDigitado) // Busca sempre pelo termo em minúsculo
-        .single();
+        .ilike('solicitante', loginParaBusca) // Busca sem ligar para maiúsculas
+        .order('created_at', ascending: false);
 
     if (response == null) return;
 
@@ -1585,7 +1586,7 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
               try {
                 // 1. SALVAR NO SUPABASE (Isso faz o dado não sumir no F5)
                 await Supabase.instance.client.from('usuarios').insert({
-                  'login': login.trim().toLowerCase(),
+                  'login': login,
                   'senha': senha,
                   'nome': nome,
                   'perfil': perfil.name, // Salva o nome do enum (ex: 'usuario')
