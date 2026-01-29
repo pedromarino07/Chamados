@@ -247,10 +247,10 @@ class _TelaLoginState extends State<TelaLogin> {
       MaterialPageRoute(builder: (_) => const DashboardAdmin()),
     );
   } else {
-    // Agora usando o nome da classe que você criou
+    // AQUI: Você precisa passar o 'usuario' para a tela!
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const DashboardUsuario()),
+      MaterialPageRoute(builder: (_) => DashboardUsuario(usuario: usuario)),
     );
   }
 }
@@ -391,7 +391,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   int? _indiceExpandidoUsuario;
 
  @override
-void initState() {
+  void initState() {
   super.initState();
   _tabController = TabController(length: 2, vsync: this);
   
@@ -457,39 +457,45 @@ Future<void> _buscarChamadosDoBanco() async {
   }
 }
 
-Future<void> _enviarChamado() async {
-  if (_problema.text.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Descreva o problema antes de enviar.")),
-    );
-    return;
+  Future<void> _enviarChamado() async {
+    if (_problema.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Por favor, descreva o problema.")),
+      );
+      return;
+    }
+
+    try {
+      await Supabase.instance.client.from('chamados').insert({
+        'solicitante': _nome.text,
+        'setor': _setorSelecionado,
+        'ramal': _ramal.text,
+        'urgencia': _urgenciaSelecionada.index, // Salva 0, 1 ou 2
+        'problema': _problema.text,
+        'status': 'Pendente',
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Chamado aberto com sucesso!")),
+      );
+
+      // Limpa os campos para o próximo
+      _problema.clear();
+      _ramal.clear();
+      
+      // Atualiza a lista do histórico
+      _buscarChamadosDoBanco();
+      
+      // Pula para a aba de histórico (índice 1)
+      _tabController.animateTo(1);
+
+    } catch (e) {
+      print("Erro ao enviar: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erro ao enviar: $e")),
+      );
+    }
   }
-
-  try {
-    await Supabase.instance.client.from('chamados').insert({
-      'solicitante': widget.usuario?.login ?? 'Desconhecido',
-      'setor': _setorSelecionado,
-      'problema': _problema.text,
-      'ramal': _ramal.text,
-      'urgencia': _urgenciaSelecionada.index, // Salvando como 0, 1 ou 2 (conforme seu Enum)
-      'status': 'Pendente',
-    });
-
-    // Limpa os campos após enviar
-    _problema.clear();
-    _ramal.clear();
-    
-    // Atualiza a lista e muda para a aba de "Meus Chamados"
-    _buscarChamadosDoBanco();
-    _tabController.animateTo(1); 
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Chamado aberto com sucesso!")),
-    );
-  } catch (e) {
-    print("Erro ao enviar: $e");
-  }
-}
 
   void _reabrirChamado(Chamado chamado) {
     final obsCtrl = TextEditingController();
@@ -631,7 +637,15 @@ Future<void> _enviarChamado() async {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    TextField(controller: _nome, decoration: const InputDecoration(labelText: "Nome Solicitante", border: OutlineInputBorder()), readOnly: widget.usuario != null),
+                    TextField(
+                      controller: _nome, // Este controller deve ser carregado no initState
+                      decoration: const InputDecoration(
+                        labelText: "Nome Solicitante", 
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      readOnly: true, // Deixa como true para ninguém mudar o nome logado
+                    ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: _setorSelecionado,
