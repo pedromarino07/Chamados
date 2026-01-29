@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+List<Chamado> bancoDeDadosGlobal = [];
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Garante a inicialização do Flutter
@@ -684,17 +685,20 @@ Future<void> _buscarChamadosDoBanco() async {
           // ABA 2: HISTÓRICO
           Builder(
             builder: (ctx) {
-                // Esqueça o .where por enquanto. Vamos mostrar o que veio do banco!
-                if (bancoDeDadosGlobal.isEmpty) {
-                  return const Center(child: Text("Você ainda não possui chamados abertos."));
-                }
+              // IMPORTANTE: Use a lista direta. 
+              // Se usar .where aqui e houver diferença de Maiúscula/Minúscula, ele esconde tudo.
+              final meusChamados = bancoDeDadosGlobal; 
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(10),
-                  itemCount: bancoDeDadosGlobal.length,
-                  itemBuilder: (context, i) {
-                    final c = bancoDeDadosGlobal[i];
-                    return Card(
+              if (meusChamados.isEmpty) {
+                return const Center(child: Text("Você ainda não possui chamados abertos."));
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(10),
+                itemCount: meusChamados.length,
+                itemBuilder: (context, i) {
+                  final c = meusChamados[i];
+                  return Card(
                       elevation: 4,
                       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                       color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
