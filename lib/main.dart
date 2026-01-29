@@ -282,7 +282,7 @@ class _TelaLoginState extends State<TelaLogin> {
                         .from('usuarios')
                         .update({
                           'senha': nova,
-                          'primeiro_acesso': false,
+                          'primeiro_acesso': true,
                         })
                         .eq('login', usuario.login);
 
@@ -448,17 +448,34 @@ Future<void> _buscarChamadosDoBanco() async {
 }
 
 Future<void> _enviarChamado() async {
+  if (_problema.text.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Descreva o problema antes de enviar.")),
+    );
+    return;
+  }
+
   try {
     await Supabase.instance.client.from('chamados').insert({
-      'id_chamado': 'CH${DateTime.now().millisecondsSinceEpoch}',
+      'solicitante': widget.usuario?.login ?? 'Desconhecido',
       'setor': _setorSelecionado,
-      'solicitante': _nome.text,
       'problema': _problema.text,
       'ramal': _ramal.text,
-      'urgencia': _urgenciaSelecionada.index, // Envia o número 0, 1 ou 2
-      'status': 'A iniciar',
+      'urgencia': _urgenciaSelecionada.index, // Salvando como 0, 1 ou 2 (conforme seu Enum)
+      'status': 'Pendente',
     });
-    await _buscarChamadosDoBanco();
+
+    // Limpa os campos após enviar
+    _problema.clear();
+    _ramal.clear();
+    
+    // Atualiza a lista e muda para a aba de "Meus Chamados"
+    _buscarChamadosDoBanco();
+    _tabController.animateTo(1); 
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Chamado aberto com sucesso!")),
+    );
   } catch (e) {
     print("Erro ao enviar: $e");
   }
