@@ -102,7 +102,6 @@ class Chamado {
 }
 
 // Lista global simulando um banco de dados para o teste
-List<Chamado> bancoDeDadosGlobal = [];
 List<String> setoresGlobal = ['Geral', 'TI', 'RH'];
 List<String> listaClassificacoes = ['Impressora', 'Internet', 'Hardware', 'Software'];
 
@@ -287,10 +286,11 @@ class _TelaLoginState extends State<TelaLogin> {
                         .from('usuarios')
                         .update({
                           'senha': nova,
-                          'primeiro_acesso': false, // Verifique se no banco é exatamente este nome
+                          'primeiro_acesso': false,
                         })
-                        .eq('login', usuario.login) // O filtro tem que ser perfeito
-                        .select(); // O select força o retorno para confirmarmos que houve alteração
+                        // O segredo está aqui: garanta que o filtro seja minúsculo e sem espaços
+                        .eq('login', usuario.login.trim().toLowerCase()) 
+                        .select();
 
                     if (response.isNotEmpty) {
                       print("Sucesso! Banco atualizado: $response");
@@ -389,6 +389,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   NivelUrgencia _urgenciaSelecionada = NivelUrgencia.normal;
   late TabController _tabController;
   int? _indiceExpandidoUsuario;
+  List<Chamado> bancoDeDadosGlobal = [];
 
  @override
   void initState() {
@@ -683,30 +684,17 @@ Future<void> _buscarChamadosDoBanco() async {
           // ABA 2: HISTÓRICO
           Builder(
             builder: (ctx) {
-              // IMPORTANTE: Use a lista global diretamente sem o .where()
-              // Se ela estiver vazia aqui, é porque o setState da busca não funcionou
-              if (bancoDeDadosGlobal.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text("Você ainda não possui chamados abertos."),
-                      const SizedBox(height: 10),
-                      ElevatedButton(
-                        onPressed: () => _buscarChamadosDoBanco(), 
-                        child: const Text("Tentar Atualizar"),
-                      )
-                    ],
-                  ),
-                );
-              }
+                // Esqueça o .where por enquanto. Vamos mostrar o que veio do banco!
+                if (bancoDeDadosGlobal.isEmpty) {
+                  return const Center(child: Text("Você ainda não possui chamados abertos."));
+                }
 
-              return ListView.builder(
-                padding: const EdgeInsets.all(10),
-                itemCount: bancoDeDadosGlobal.length,
-                itemBuilder: (context, i) {
-                  final c = bancoDeDadosGlobal[i];
-                  return Card(
+                return ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: bancoDeDadosGlobal.length,
+                  itemBuilder: (context, i) {
+                    final c = bancoDeDadosGlobal[i];
+                    return Card(
                       elevation: 4,
                       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                       color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
