@@ -685,7 +685,7 @@ Future<void> _buscarChamadosDoBanco() async {
               builder: (ctx) {
                 // 1. FILTRO: Criamos a lista filtrada apenas com os chamados do usuário atual
                 final meusChamados = bancoDeDadosGlobal.where((c) => 
-                  c.solicitante.toLowerCase() == widget.usuario!.login.toLowerCase()
+                  c.solicitante.trim().toLowerCase() == widget.usuario!.login.trim().toLowerCase()
                 ).toList();
 
                 // 2. RETORNO: Se não tiver chamados, avisa o usuário. Se tiver, desenha a lista.
