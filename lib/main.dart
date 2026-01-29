@@ -252,51 +252,54 @@ void _navegarParaDashboard(Usuario usuario) {
   }
 }
 
-  // --- SUA FUNÇÃO DE DIÁLOGO ATUALIZADA ---
-void _alterarSenhaPrimeiroAcesso(Usuario usuario) {
-  final novaSenhaCtrl = TextEditingController();
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: const Text("Primeiro Acesso"),
-      content: TextField(
-        controller: novaSenhaCtrl, 
-        decoration: const InputDecoration(labelText: "Defina uma nova senha"), 
-        obscureText: true
-      ),
-      actions: [
-        ElevatedButton(
-          onPressed: () async {
-            final nova = novaSenhaCtrl.text.trim();
-            if (nova.isEmpty) return;
+        // --- SUA FUNÇÃO DE DIÁLOGO ATUALIZADA ---
+      void _alterarSenhaPrimeiroAcesso(Usuario usuario) {
+        final novaSenhaCtrl = TextEditingController();
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text("Primeiro Acesso"),
+            content: TextField(
+              controller: novaSenhaCtrl, 
+              decoration: const InputDecoration(labelText: "Defina uma nova senha"), 
+              obscureText: true
+            ),
+            actions: [
+                ElevatedButton(
+                  onPressed: () async {
+                    final nova = novaSenhaCtrl.text.trim();
+                    if (nova.isEmpty) return;
 
-            try {
-              // ATUALIZA NO SUPABASE (BANCO DE DADOS REAL)
-              await Supabase.instance.client
-                  .from('usuarios')
-                  .update({
-                    'senha': nova,
-                    'primeiro_acesso': false,
-                  })
-                  .eq('login', usuario.login);
+                    try {
+                      await Supabase.instance.client
+                          .from('usuarios')
+                          .update({
+                            'senha': nova,
+                            'primeiro_acesso': false,
+                          })
+                          .eq('login', usuario.login);
 
-              // Atualiza o objeto na memória
-              usuario.senha = nova;
-              usuario.primeiroAcesso = false;
+                      usuario.senha = nova;
+                      usuario.primeiroAcesso = false;
 
-              Navigator.pop(ctx); // Fecha o diálogo
-              _navegarParaDashboard(usuario); // Vai para o dashboard
-            } catch (e) {
-              print("Erro ao atualizar senha: $e");
-            }
-          },
-          child: const Text("Salvar e Entrar"),
-        )
-      ],
-    ),
-  );
-}
+                      Navigator.pop(ctx);
+                      _navegarParaDashboard(usuario);
+                    } catch (e) {
+                      print("Erro ao atualizar senha: $e");
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text("Erro ao salvar: $e")),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text("Salvar e Entrar"),
+                ), // Fecha o ElevatedButton
+              ], // Fecha o actions
+            ), // Fecha o AlertDialog
+          ); // Fecha o showDialog
+        } // Fecha a função _alterarSenhaPrimeiroAces
 
   @override
   Widget build(BuildContext context) {
