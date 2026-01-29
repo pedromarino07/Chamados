@@ -1,1 +1,0 @@
- C:\\Projetos\\Chamados\\build\\21a35b736ca84ef0bc091bda020d1ac9\\dart_build_result.json:  C:\\Projetos\\Chamados\\.dart_tool\\package_config.json C:\\Projetos\\Chamados\\pubspec.yaml C:\\Users\\pedro\\Develop\\flutter\\bin\\cache\\dart-sdk\\version c:\\projetos\\chamados\\.dart_tool\\package_config.json
