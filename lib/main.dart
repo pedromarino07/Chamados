@@ -688,13 +688,14 @@ Future<void> _buscarChamadosDoBanco() async {
 
                 if (meusChamados.isEmpty) {
                   return const Center(child: Text("Você ainda não possui chamados abertos."));
-                }
+                  }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(10),
-                  itemCount: meusChamados.length, // Agora o tamanho é EXATO da lista filtrada
-                  itemBuilder: (context, i) {
-                    final c = meusChamados[i]; // Pegamos o chamado da lista filtrada
+                  // 3. Se tiver dados, desenha o histórico
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(10),
+                    itemCount: meusChamados.length, 
+                    itemBuilder: (context, i) {
+                      final c = meusChamados[i];
                     
                     return Card(
                       elevation: 4,
