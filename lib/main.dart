@@ -161,14 +161,6 @@ class Usuario {
   }) : dataCadastro = dataCadastro ?? DateTime.now();
 }
 
-final List<Usuario> usuariosMock = [
-  Usuario(login: 'JOAO SILVA', senha: '123', nome: 'JOAO SILVA', perfil: TipoPerfil.usuario),
-  Usuario(login: 'tec', senha: '123', nome: 'Técnico Pedro', perfil: TipoPerfil.suporte),
-  Usuario(login: 'tec', senha: '123', nome: 'Técnico Pedro', perfil: TipoPerfil.suporte, setorTecnico: SetorTecnico.hardwares),
-  Usuario(login: 'ana', senha: '123', nome: 'Ana (Sistemas)', perfil: TipoPerfil.suporte, setorTecnico: SetorTecnico.sistemas),
-  Usuario(login: 'admin', senha: '123', nome: 'Admin', perfil: TipoPerfil.admin),
-];
-
 // --- TELA DE LOGIN ---
 class TelaLogin extends StatefulWidget {
   const TelaLogin({super.key});
@@ -1059,10 +1051,37 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
   String? _idChamadoExpandido;
   String _setorFiltro = 'Todos';
 
+  List<Usuario> usuariosDoBanco = [];
+
+  Future<void> _buscarUsuariosDoBanco() async {
+    try {
+      final data = await Supabase.instance.client.from('usuarios').select();
+      setState(() {
+        usuariosDoBanco = (data as List).map((u) {
+          return Usuario(
+            login: u['login'] ?? '',
+            senha: u['senha'] ?? '',
+            nome: u['nome'] ?? '',
+            primeiroAcesso: u['primeiro_acesso'] ?? true,
+            perfil: TipoPerfil.values.firstWhere((e) => e.name == u['perfil']),
+            setorTecnico: u['setor_tecnico'] != null 
+              ? SetorTecnico.values.firstWhere((e) => e.name == u['setor_tecnico']) 
+              : null,
+          );
+        }).toList();
+      });
+    } catch (e) {
+      print("Erro ao carregar usuários: $e");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 6, vsync: this);
+    
+    _buscarUsuariosDoBanco(); // Isso garante que os dados carreguem no F5
+    
     _tabController.addListener(() {
       setState(() {});
     });
@@ -1302,23 +1321,24 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                final index = usuariosMock.indexOf(u);
-                if (index != -1) {
-                  usuariosMock[index] = Usuario(
-                    login: loginCtrl.text,
-                    senha: senhaCtrl.text.isNotEmpty ? senhaCtrl.text : u.senha,
-                    nome: nomeCtrl.text,
-                    perfil: perfilSelecionado,
-                    setorTecnico: perfilSelecionado == TipoPerfil.suporte ? setorTecnicoSelecionado : null,
-                    primeiroAcesso: u.primeiroAcesso,
-                    dataCadastro: u.dataCadastro,
-                    ativo: u.ativo,
-                  );
-                }
-              });
-              Navigator.pop(ctx);
+            onPressed: () async {
+              try {
+                // 1. Atualiza no Supabase
+                await Supabase.instance.client.from('usuarios').update({
+                  'nome': nomeCtrl.text,
+                  'senha': senhaCtrl.text.isNotEmpty ? senhaCtrl.text : u.senha,
+                  'perfil': perfilSelecionado.name,
+                  'setor_tecnico': perfilSelecionado == TipoPerfil.suporte ? setorTecnicoSelecionado?.name : null,
+                }).eq('login', u.login); // Usa o login para saber quem editar
+
+                // 2. Recarrega a lista do banco para refletir na tela
+                await _buscarUsuariosDoBanco(); 
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Alterações salvas!")));
+              } catch (e) {
+                print("Erro ao atualizar: $e");
+              }
             },
             child: const Text("Salvar"),
           )
@@ -1430,8 +1450,7 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
                     ],
                     onChanged: (v) => setStateDialog(() => perfil = v!),
                     decoration: const InputDecoration(labelText: "Cargo"),
-                  ), // O ERRO ESTAVA AQUI: Haviam dois parênteses ))
-                  
+                  ),
                   if (perfil == TipoPerfil.suporte) ...[
                     const SizedBox(height: 10),
                     DropdownButtonFormField<SetorTecnico>(
@@ -1452,22 +1471,33 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                // CORREÇÃO: Adicionando apenas UM usuário com ou sem setor técnico
-                usuariosMock.add(Usuario(
-                  login: login, 
-                  senha: senha, 
-                  nome: nome, 
-                  perfil: perfil, 
-                  primeiroAcesso: true,
-                  setorTecnico: perfil == TipoPerfil.suporte ? setorTecnico : null,
-                ));
-              });
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Usuário criado!")));
+            onPressed: () async { // Adicionamos async aqui
+              try {
+                // 1. SALVAR NO SUPABASE (Isso faz o dado não sumir no F5)
+                await Supabase.instance.client.from('usuarios').insert({
+                  'login': login,
+                  'senha': senha,
+                  'nome': nome,
+                  'perfil': perfil.name, // Salva o nome do enum (ex: 'usuario')
+                  'primeiro_acesso': true,
+                  'setor_tecnico': perfil == TipoPerfil.suporte ? setorTecnico?.name : null,
+                });
+
+                
+                if (context.mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Usuário salvo permanentemente no Banco!")),
+                  );
+                }
+              } catch (e) {
+                print("Erro ao salvar: $e");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Erro ao salvar no banco. Verifique sua conexão.")),
+                );
+              }
             },
-            child: const Text("Salvar"),
+            child: const Text("Salvar no Banco"),
           )
         ],
       ),
@@ -1550,9 +1580,11 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
 
             // ABA 3: USUÁRIOS
             ListView.builder(
-              itemCount: usuariosMock.length,
+              itemCount: usuariosDoBanco.length, // Aqui está certo!
               itemBuilder: (ctx, i) {
-                final u = usuariosMock[i];
+                // CORREÇÃO AQUI: Mude de usuariosMock para usuariosDoBanco
+                final u = usuariosDoBanco[i]; 
+                
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   child: ExpansionTile(
@@ -2078,19 +2110,21 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
     }).toList();
 
     for (var chamado in chamadosNoPeriodoFinalizados) {
-      if (chamado.tecnico != null) {
-        try {
-          final tecnico = usuariosMock.firstWhere((u) => u.nome == chamado.tecnico);
-          if (tecnico.setorTecnico == SetorTecnico.sistemas) {
-            sistemasCount++;
-          } else if (tecnico.setorTecnico == SetorTecnico.hardwares) {
-            hardwaresCount++;
-          }
-        } catch (e) {
-          // Ignora caso o técnico não seja encontrado
+    if (chamado.tecnico != null) {
+      try {
+        // BUSCA NA LISTA DO BANCO EM VEZ DO MOCK
+        final tecnico = usuariosDoBanco.firstWhere((u) => u.nome == chamado.tecnico);
+        
+        if (tecnico.setorTecnico == SetorTecnico.sistemas) {
+          sistemasCount++;
+        } else if (tecnico.setorTecnico == SetorTecnico.hardwares) {
+          hardwaresCount++;
         }
+      } catch (e) {
+        // Técnico não encontrado na lista carregada do banco
       }
     }
+  }
 
     return Row(
       children: [
