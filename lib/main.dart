@@ -467,7 +467,7 @@ Future<void> _buscarChamadosDoBanco() async {
 
     try {
       await Supabase.instance.client.from('chamados').insert({
-        'solicitante': _nome.text,
+        'solicitante': widget.usuario!.login.trim().toLowerCase(),
         'setor': _setorSelecionado,
         'ramal': _ramal.text,
         'urgencia': _urgenciaSelecionada.index, // Salva 0, 1 ou 2
@@ -684,11 +684,8 @@ Future<void> _buscarChamadosDoBanco() async {
           Builder(
               builder: (ctx) {
                 // 1. FILTRO: Criamos a lista filtrada apenas com os chamados do usuário atual
-                final meusChamados = bancoDeDadosGlobal.where((c) => 
-                  c.solicitante.trim().toLowerCase() == widget.usuario!.login.trim().toLowerCase()
-                ).toList();
+                final meusChamados = bancoDeDadosGlobal; 
 
-                // 2. RETORNO: Se não tiver chamados, avisa o usuário. Se tiver, desenha a lista.
                 if (meusChamados.isEmpty) {
                   return const Center(child: Text("Você ainda não possui chamados abertos."));
                 }
