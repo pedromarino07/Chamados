@@ -682,22 +682,31 @@ Future<void> _buscarChamadosDoBanco() async {
       ),
           // ABA 2: HISTÓRICO
           Builder(
-              builder: (ctx) {
-                // 1. FILTRO: Criamos a lista filtrada apenas com os chamados do usuário atual
-                final meusChamados = bancoDeDadosGlobal; 
+            builder: (ctx) {
+              // IMPORTANTE: Use a lista global diretamente sem o .where()
+              // Se ela estiver vazia aqui, é porque o setState da busca não funcionou
+              if (bancoDeDadosGlobal.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("Você ainda não possui chamados abertos."),
+                      const SizedBox(height: 10),
+                      ElevatedButton(
+                        onPressed: () => _buscarChamadosDoBanco(), 
+                        child: const Text("Tentar Atualizar"),
+                      )
+                    ],
+                  ),
+                );
+              }
 
-                if (meusChamados.isEmpty) {
-                  return const Center(child: Text("Você ainda não possui chamados abertos."));
-                  }
-
-                  // 3. Se tiver dados, desenha o histórico
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(10),
-                    itemCount: meusChamados.length, 
-                    itemBuilder: (context, i) {
-                      final c = meusChamados[i];
-                    
-                    return Card(
+              return ListView.builder(
+                padding: const EdgeInsets.all(10),
+                itemCount: bancoDeDadosGlobal.length,
+                itemBuilder: (context, i) {
+                  final c = bancoDeDadosGlobal[i];
+                  return Card(
                       elevation: 4,
                       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                       color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
