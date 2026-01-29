@@ -240,66 +240,78 @@ class _TelaLoginState extends State<TelaLogin> {
 }
 
   // --- FUNÇÃO DE NAVEGAÇÃO AUXILIAR ---
-void _navegarParaDashboard(Usuario usuario) {
+  void _navegarParaDashboard(Usuario usuario) {
   if (usuario.perfil == TipoPerfil.admin) {
     Navigator.pushReplacement(
-      context, 
-      MaterialPageRoute(builder: (_) => const DashboardAdmin())
+      context,
+      MaterialPageRoute(builder: (_) => const DashboardAdmin()),
     );
   } else {
-    // Adicione aqui a navegação para tela de técnico/comum futuramente
-    print("Navegando para tela de usuário comum");
+    // Agora usando o nome da classe que você criou
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const DashboardUsuario()),
+    );
   }
 }
 
         // --- SUA FUNÇÃO DE DIÁLOGO ATUALIZADA ---
       void _alterarSenhaPrimeiroAcesso(Usuario usuario) {
-        final novaSenhaCtrl = TextEditingController();
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
+      final novaSenhaCtrl = TextEditingController();
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext dialogContext) { // Nomeamos como dialogContext para não confundir
+          return AlertDialog(
             title: const Text("Primeiro Acesso"),
             content: TextField(
-              controller: novaSenhaCtrl, 
-              decoration: const InputDecoration(labelText: "Defina uma nova senha"), 
-              obscureText: true
+              controller: novaSenhaCtrl,
+              decoration: const InputDecoration(labelText: "Defina uma nova senha"),
+              obscureText: true,
             ),
             actions: [
-                ElevatedButton(
-                  onPressed: () async {
-                    final nova = novaSenhaCtrl.text.trim();
-                    if (nova.isEmpty) return;
+              ElevatedButton(
+                onPressed: () async {
+                  final nova = novaSenhaCtrl.text.trim();
+                  if (nova.isEmpty) return;
 
-                    try {
-                      await Supabase.instance.client
-                          .from('usuarios')
-                          .update({
-                            'senha': nova,
-                            'primeiro_acesso': false,
-                          })
-                          .eq('login', usuario.login);
+                  try {
+                    // 1. Atualiza no Supabase
+                    await Supabase.instance.client
+                        .from('usuarios')
+                        .update({
+                          'senha': nova,
+                          'primeiro_acesso': false,
+                        })
+                        .eq('login', usuario.login);
 
-                      usuario.senha = nova;
-                      usuario.primeiroAcesso = false;
+                    // 2. Atualiza o objeto na memória local
+                    usuario.senha = nova;
+                    usuario.primeiroAcesso = false;
 
-                      Navigator.pop(ctx);
+                    // 3. FECHA O DIÁLOGO (Usando o context do próprio diálogo)
+                    Navigator.of(dialogContext).pop();
+
+                    // 4. NAVEGA (Usando o context da página principal)
+                    if (mounted) {
                       _navegarParaDashboard(usuario);
-                    } catch (e) {
-                      print("Erro ao atualizar senha: $e");
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("Erro ao salvar: $e")),
-                        );
-                      }
                     }
-                  },
-                  child: const Text("Salvar e Entrar"),
-                ), // Fecha o ElevatedButton
-              ], // Fecha o actions
-            ), // Fecha o AlertDialog
-          ); // Fecha o showDialog
-        } // Fecha a função _alterarSenhaPrimeiroAces
+                    
+                  } catch (e) {
+                    print("Erro ao atualizar senha: $e");
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Erro ao salvar: $e")),
+                    );
+                  }
+                },
+                child: const Text("Salvar e Entrar"),
+              ),
+            ],
+          );
+        },
+      );
+    }//Fecha a função _alterarSenhaPrimeiroAces
 
   @override
   Widget build(BuildContext context) {
@@ -384,9 +396,13 @@ void initState() {
 Future<void> _buscarChamadosDoBanco() async {
   try {
     print("Iniciando busca no Supabase...");
+    
+    // FILTRO: Buscamos apenas os chamados onde o solicitante é o usuário logado
     final response = await Supabase.instance.client
         .from('chamados')
-        .select();
+        .select()
+        .eq('solicitante', widget.usuario?.login ?? '') 
+        .order('created_at', ascending: false);
     
     if (response == null) return;
 
@@ -401,19 +417,31 @@ Future<void> _buscarChamadosDoBanco() async {
           dataTratada = DateTime.now();
         }
 
+        // Tratamento da Urgência: se no banco for String (ex: 'normal'), 
+        // convertemos para o Enum. Se for Index (int), mantemos sua lógica.
+        NivelUrgencia urgencia;
+        if (item['urgencia'] is int) {
+          urgencia = NivelUrgencia.values[item['urgencia']];
+        } else {
+          urgencia = NivelUrgencia.values.firstWhere(
+            (e) => e.name == item['urgencia'].toString(),
+            orElse: () => NivelUrgencia.normal,
+          );
+        }
+
         return Chamado(
-          id: item['id_chamado']?.toString() ?? 'S/ID',
+          id: item['id']?.toString() ?? 'S/ID', // Geralmente no Supabase o nome padrão é 'id'
           setor: item['setor']?.toString() ?? '',
           solicitante: item['solicitante']?.toString() ?? '',
           problema: item['problema']?.toString() ?? '',
           ramal: item['ramal']?.toString() ?? '',
-          status: item['status']?.toString() ?? 'A iniciar',
-          urgencia: NivelUrgencia.values[item['urgencia'] is int ? item['urgencia'] : 1],
+          status: item['status']?.toString() ?? 'Pendente',
+          urgencia: urgencia,
           dataHora: dataTratada,
         );
       }).toList();
     });
-    print("Total de chamados carregados: ${bancoDeDadosGlobal.length}");
+    print("Total de chamados carregados para ${widget.usuario?.login}: ${bancoDeDadosGlobal.length}");
   } catch (e) {
     print("ERRO AO BUSCAR DADOS: $e");
   }
