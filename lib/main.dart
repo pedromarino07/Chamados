@@ -274,35 +274,45 @@ class _TelaLoginState extends State<TelaLogin> {
               ElevatedButton(
                 onPressed: () async {
                   final nova = novaSenhaCtrl.text.trim();
-                  if (nova.isEmpty) return;
+                  if (nova.isEmpty) {
+                    print("Senha vazia, não vou atualizar.");
+                    return;
+                  }
 
                   try {
-                    // 1. Atualiza no Supabase
-                    await Supabase.instance.client
+                    print("Tentando atualizar senha para o login: ${usuario.login}");
+
+                    // 1. ATUALIZA NO SUPABASE
+                    final response = await Supabase.instance.client
                         .from('usuarios')
                         .update({
                           'senha': nova,
-                          'primeiro_acesso': true,
+                          'primeiro_acesso': false, // Verifique se no banco é exatamente este nome
                         })
-                        .eq('login', usuario.login);
+                        .eq('login', usuario.login) // O filtro tem que ser perfeito
+                        .select(); // O select força o retorno para confirmarmos que houve alteração
 
-                    // 2. Atualiza o objeto na memória local
-                    usuario.senha = nova;
-                    usuario.primeiroAcesso = false;
+                    if (response.isNotEmpty) {
+                      print("Sucesso! Banco atualizado: $response");
+                      
+                      // 2. Atualiza o objeto na memória
+                      usuario.senha = nova;
+                      usuario.primeiroAcesso = false;
 
-                    // 3. FECHA O DIÁLOGO (Usando o context do próprio diálogo)
-                    Navigator.of(dialogContext).pop();
-
-                    // 4. NAVEGA (Usando o context da página principal)
-                    if (mounted) {
+                      // 3. Fecha o diálogo e navega
+                      Navigator.pop(dialogContext); 
                       _navegarParaDashboard(usuario);
+                    } else {
+                      print("Aviso: O banco não retornou erro, mas nenhuma linha foi alterada. O login '${usuario.login}' existe mesmo?");
                     }
-                    
+
                   } catch (e) {
-                    print("Erro ao atualizar senha: $e");
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Erro ao salvar: $e")),
-                    );
+                    print("ERRO CRÍTICO NO UPDATE: $e");
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Erro ao salvar no banco: $e")),
+                      );
+                    }
                   }
                 },
                 child: const Text("Salvar e Entrar"),
