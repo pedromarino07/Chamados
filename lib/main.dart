@@ -198,7 +198,6 @@ class _TelaLoginState extends State<TelaLogin> {
         .maybeSingle(); // Pega um único usuário ou null
 
     if (data != null) {
-      // 2. Agora o 'data' existe e os erros vermelhos somem!
       final usuarioLogado = Usuario(
         login: data['login'],
         senha: data['senha'],
@@ -211,55 +210,93 @@ class _TelaLoginState extends State<TelaLogin> {
             : null,
       );
 
-      // 3. Redireciona conforme o perfil
-      if (usuarioLogado.perfil == TipoPerfil.admin) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardAdmin()));
+      // Verificação de segurança: Usuário desativado não entra
+      if (!usuarioLogado.ativo) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Este usuário está desativado.")),
+        );
+        return;
+      }
+
+      // 3. Redireciona considerando a senha temporária
+      if (usuarioLogado.primeiroAcesso) {
+        // Se for primeiro acesso, abre o diálogo que você já tem
+        _alterarSenhaPrimeiroAcesso(usuarioLogado);
       } else {
-        // Redirecione para a tela de usuário/técnico
+        // Se não for primeiro acesso, vai para o dashboard normal
+        _navegarParaDashboard(usuarioLogado);
       }
     } else {
-      // Caso o login ou senha estejam errados
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Usuário ou senha incorretos")),
       );
     }
   } catch (e) {
     print("Erro no login: $e");
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Erro de conexão: $e")),
+    );
   }
 }
 
-  void _navegarParaDashboard(Usuario usuario) {
-    if (usuario.perfil == TipoPerfil.usuario) {
-      Navigator.pushReplacementNamed(context, '/usuario', arguments: usuario);
-    } else if (usuario.perfil == TipoPerfil.suporte) {
-      Navigator.pushReplacementNamed(context, '/suporte', arguments: usuario);
-    } else if (usuario.perfil == TipoPerfil.admin) {
-      Navigator.pushReplacementNamed(context, '/admin');
-    }
-  }
-
-  void _alterarSenhaPrimeiroAcesso(Usuario usuario) {
-    final novaSenhaCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Primeiro Acesso"),
-        content: TextField(controller: novaSenhaCtrl, decoration: const InputDecoration(labelText: "Defina uma nova senha"), obscureText: true),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              usuario.senha = novaSenhaCtrl.text;
-              usuario.primeiroAcesso = false;
-              Navigator.pop(ctx);
-              _navegarParaDashboard(usuario);
-            },
-            child: const Text("Salvar e Entrar"),
-          )
-        ],
-      ),
+  // --- FUNÇÃO DE NAVEGAÇÃO AUXILIAR ---
+void _navegarParaDashboard(Usuario usuario) {
+  if (usuario.perfil == TipoPerfil.admin) {
+    Navigator.pushReplacement(
+      context, 
+      MaterialPageRoute(builder: (_) => const DashboardAdmin())
     );
+  } else {
+    // Adicione aqui a navegação para tela de técnico/comum futuramente
+    print("Navegando para tela de usuário comum");
   }
+}
+
+  // --- SUA FUNÇÃO DE DIÁLOGO ATUALIZADA ---
+void _alterarSenhaPrimeiroAcesso(Usuario usuario) {
+  final novaSenhaCtrl = TextEditingController();
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Primeiro Acesso"),
+      content: TextField(
+        controller: novaSenhaCtrl, 
+        decoration: const InputDecoration(labelText: "Defina uma nova senha"), 
+        obscureText: true
+      ),
+      actions: [
+        ElevatedButton(
+          onPressed: () async {
+            final nova = novaSenhaCtrl.text.trim();
+            if (nova.isEmpty) return;
+
+            try {
+              // ATUALIZA NO SUPABASE (BANCO DE DADOS REAL)
+              await Supabase.instance.client
+                  .from('usuarios')
+                  .update({
+                    'senha': nova,
+                    'primeiro_acesso': false,
+                  })
+                  .eq('login', usuario.login);
+
+              // Atualiza o objeto na memória
+              usuario.senha = nova;
+              usuario.primeiroAcesso = false;
+
+              Navigator.pop(ctx); // Fecha o diálogo
+              _navegarParaDashboard(usuario); // Vai para o dashboard
+            } catch (e) {
+              print("Erro ao atualizar senha: $e");
+            }
+          },
+          child: const Text("Salvar e Entrar"),
+        )
+      ],
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
