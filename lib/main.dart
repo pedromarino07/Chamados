@@ -185,44 +185,46 @@ class _TelaLoginState extends State<TelaLogin> {
   }
 
   void _login() async {
-  final user = _userController.text.trim();
-  final pass = _passController.text.trim();
+  final userDigitado = _userController.text.trim();
+  final senhaDigitada = _passController.text.trim();
 
   try {
-    // 1. Busca o usuário no Supabase em vez do Mock
-    final response = await Supabase.instance.client
+    // 1. Busca o usuário no Supabase
+    final data = await Supabase.instance.client
         .from('usuarios')
         .select()
-        .eq('login', user)
-        .eq('senha', pass)
-        .maybeSingle();
+        .eq('login', userDigitado)
+        .eq('senha', senhaDigitada)
+        .maybeSingle(); // Pega um único usuário ou null
 
-    if (response != null) {
-      // 2. Se achou, salva no navegador para não deslogar ao atualizar
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('sessao_user', user);
-      await prefs.setString('sessao_pass', pass);
-
-      // 3. Cria o objeto Usuario com os dados do banco
+    if (data != null) {
+      // 2. Agora o 'data' existe e os erros vermelhos somem!
       final usuarioLogado = Usuario(
-        login: response['login'],
-        senha: response['senha'],
-        perfil: TipoPerfil.values.firstWhere((e) => e.toString().split('.').last == response['perfil']),
-        primeiroAcesso: response['primeiro_acesso'] ?? false,
+        login: data['login'],
+        senha: data['senha'],
+        nome: data['nome'] ?? 'Sem Nome',
+        perfil: TipoPerfil.values.firstWhere((e) => e.name == data['perfil']),
+        primeiroAcesso: data['primeiro_acesso'] ?? false,
+        ativo: data['ativo'] ?? true,
+        setorTecnico: data['setor_tecnico'] != null 
+            ? SetorTecnico.values.firstWhere((e) => e.name == data['setor_tecnico']) 
+            : null,
       );
 
-      if (usuarioLogado.primeiroAcesso) {
-        _alterarSenhaPrimeiroAcesso(usuarioLogado);
+      // 3. Redireciona conforme o perfil
+      if (usuarioLogado.perfil == TipoPerfil.admin) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardAdmin()));
       } else {
-        _navegarParaDashboard(usuarioLogado);
+        // Redirecione para a tela de usuário/técnico
       }
     } else {
-      throw Exception("Usuário não encontrado");
+      // Caso o login ou senha estejam errados
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Usuário ou senha incorretos")),
+      );
     }
   } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Usuário ou senha incorretos!")),
-    );
+    print("Erro no login: $e");
   }
 }
 
