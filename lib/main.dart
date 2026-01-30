@@ -574,6 +574,34 @@ Future<void> _buscarChamadosDoBanco() async {
     );
   }
 
+  Future<void> _cancelarChamado(Chamado c) async {
+    try {
+      // 1. Deleta do Banco de Dados
+      await Supabase.instance.client
+          .from('chamados')
+          .delete()
+          .eq('id', c.id);
+
+      // 2. Remove da lista local para a interface atualizar na hora
+      setState(() {
+        bancoDeDadosGlobal.removeWhere((item) => item.id == c.id);
+      });
+
+      // 3. Avisa o usuário
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Chamado cancelado com sucesso!"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print("Erro ao cancelar: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Erro ao cancelar chamado.")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -694,17 +722,17 @@ Future<void> _buscarChamadosDoBanco() async {
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.all(10),
-                itemCount: meusChamados.length,
-                itemBuilder: (context, i) {
-                  final c = meusChamados[i];
-                  return Card(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: meusChamados.length,
+                  itemBuilder: (context, i) {
+                    final c = meusChamados[i];
+                    return Card(
                       elevation: 4,
                       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                       color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
                       child: ExpansionTile(
-                        key: GlobalKey(), // Isso ajuda o Flutter a não bugar ao expandir
-                        title: Text("#${c.id} - ${c.problema}"),
+                        key: GlobalKey(), 
+                        title: Text("#${c.id} - ${c.solicitante.toUpperCase()}"),
                         subtitle: Text("Status: ${c.status} | Urgência: ${c.urgencia.name.toUpperCase()}"),
                         leading: CircleAvatar(
                           backgroundColor: c.status == 'Finalizado' ? Colors.green : Colors.red,
@@ -714,14 +742,32 @@ Future<void> _buscarChamadosDoBanco() async {
                           Padding(
                             padding: const EdgeInsets.all(15.0),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start, // Alinha tudo à esquerda
                               children: [
-                                Text("📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year}"),
+                                // Força a largura total para evitar centralização indesejada
+                                const SizedBox(width: double.infinity), 
+                                
+                                Text(
+                                  "📅 Abertura: ${c.dataHora.day.toString().padLeft(2, '0')}/${c.dataHora.month.toString().padLeft(2, '0')}/${c.dataHora.year} "
+                                  "às ${c.dataHora.hour.toString().padLeft(2, '0')}:${c.dataHora.minute.toString().padLeft(2, '0')}"
+                                ),
                                 Text("👨‍🔧 Técnico: ${c.tecnico ?? 'Não atribuído'}"),
                                 const SizedBox(height: 10),
                                 const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
                                 Text(c.problema),
-                                // Se o status for 'Finalizado' ou 'Aguardando', coloque seus botões aqui
+                                
+                                // --- BOTÕES DE AÇÃO ---
+                                if (c.status == 'Pendente') ...[
+                                  const Divider(),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: () => _cancelarChamado(c),
+                                      icon: const Icon(Icons.cancel, color: Colors.red),
+                                      label: const Text("Cancelar Chamado", style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
