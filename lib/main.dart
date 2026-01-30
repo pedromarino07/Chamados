@@ -239,15 +239,25 @@ class _TelaLoginState extends State<TelaLogin> {
   }
 }
 
-  // --- FUNÇÃO DE NAVEGAÇÃO AUXILIAR ---
   void _navegarParaDashboard(Usuario usuario) {
-  if (usuario.perfil == TipoPerfil.admin) {
+  // 1. PRIMEIRO: Verificamos se é estritamente ADMIN
+    if (usuario.perfil == TipoPerfil.admin) {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const DashboardAdmin()),
+      MaterialPageRoute(builder: (_) => const DashboardAdmin()), // <-- Remova o (usuario: usuario)
     );
-  } else {
-    // AQUI: Você precisa passar o 'usuario' para a tela!
+  }
+  // 2. SEGUNDO: Verificamos se é técnico (Sistemas ou Hardware)
+  else if (usuario.setorTecnico == SetorTecnico.sistemas || 
+           usuario.setorTecnico == SetorTecnico.hardwares) {
+    
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => DashboardSuporte(usuario: usuario)),
+    );
+  } 
+  // 3. TERCEIRO: Se não for nenhum dos acima, é usuário comum
+  else {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => DashboardUsuario(usuario: usuario)),
@@ -823,6 +833,8 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
     );
   }
 
+
+
   // 1. FUNÇÃO DE REABRIR
   void _reabrirChamado(Chamado chamado) {
     final obsCtrl = TextEditingController();
@@ -900,8 +912,69 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
     return Colors.green;
   }
 
+  Future<void> _buscarChamadosGerais() async {
+  try {
+    // IMPORTANTE: Aqui não usamos o filtro .ilike('solicitante', ...)
+    // Assim o técnico vê a fila de todo mundo.
+    final response = await Supabase.instance.client
+        .from('chamados')
+        .select()
+        .order('created_at', ascending: false);
+
+    if (response == null) return;
+
+    setState(() {
+      bancoDeDadosGlobal = (response as List).map((item) {
+        // Conversão de data segura
+        DateTime dataTratada;
+        try {
+          dataTratada = item['created_at'] != null 
+              ? DateTime.parse(item['created_at'].toString()) 
+              : DateTime.now();
+        } catch (e) {
+          dataTratada = DateTime.now();
+        }
+
+        // Conversão de Urgência (usando sua lógica de NivelUrgencia)
+        NivelUrgencia urgencia;
+        if (item['urgencia'] is int) {
+          urgencia = NivelUrgencia.values[item['urgencia']];
+        } else {
+          urgencia = NivelUrgencia.values.firstWhere(
+            (e) => e.name == item['urgencia'].toString(),
+            orElse: () => NivelUrgencia.normal,
+          );
+        }
+
+        return Chamado(
+          id: item['id']?.toString() ?? 'S/ID',
+          setor: item['setor']?.toString() ?? '',
+          solicitante: item['solicitante']?.toString() ?? '',
+          problema: item['problema']?.toString() ?? '',
+          ramal: item['ramal']?.toString() ?? '',
+          status: item['status']?.toString() ?? 'A iniciar',
+          urgencia: urgencia,
+          dataHora: dataTratada,
+          tecnico: item['tecnico']?.toString(), // Campo essencial para o Suporte
+          classificacao: item['classificacao']?.toString(),
+        );
+      }).toList();
+    });
+  } catch (e) {
+    debugPrint("Erro ao carregar fila de suporte: $e");
+  }
+}
+
+@override
+void initState() {
+  super.initState();
+  _buscarChamadosGerais(); // Dispara a carga de dados global
+}
+
   @override
   Widget build(BuildContext context) {
+    final bool isHardware = widget.usuario?.setorTecnico == SetorTecnico.hardwares;
+    final bool isSistemas = widget.usuario?.setorTecnico == SetorTecnico.sistemas;
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -919,9 +992,9 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
               ),
             ],
           ),
-          title: const Text("T.I Suporte"),
+          title: Text("T.I ${isHardware ? 'Hardware' : (isSistemas ? 'Sistemas' : 'Suporte')}"),
           centerTitle: true,
-          backgroundColor: const Color(0xFFF15A22),
+          backgroundColor: isHardware ? const Color(0xFFF15A22) : Colors.blueGrey,
           actions: [
             IconButton(
               icon: const Icon(Icons.exit_to_app),
@@ -946,6 +1019,20 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
     );
   }
 
+  Future<void> _atualizarChamadoNoBanco(Chamado chamado, Map<String, dynamic> dados) async {
+    try {
+      await Supabase.instance.client
+          .from('chamados')
+          .update(dados)
+          .eq('id', chamado.id);
+    } catch (e) {
+      debugPrint("Erro ao salvar: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Erro ao conectar com o banco de dados.")),
+      );
+    }
+  }
+
 
   Widget _buildListaChamadosSuporte(bool finalizados) {
     final lista = bancoDeDadosGlobal
@@ -957,8 +1044,11 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
       itemBuilder: (ctx, i) {
         final chamado = lista[i];
         final bool isAdmin = widget.usuario?.perfil == TipoPerfil.admin;
-        final bool isResponsavel = chamado.tecnico == widget.usuario?.nome;
-        final bool temTecnico = chamado.tecnico != null && chamado.tecnico!.isNotEmpty;
+        final bool isResponsavel = chamado.tecnico == widget.usuario?.login || chamado.tecnico == widget.usuario?.nome;
+        final bool temTecnico = chamado.tecnico != null && 
+                        chamado.tecnico!.trim().isNotEmpty && 
+                        chamado.tecnico != 'Não atribuído';
+                        chamado.tecnico != 'null';
 
         return Card(
           elevation: 4,
@@ -1019,53 +1109,84 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
                         // --- STATUS: A INICIAR ---
-                        if (chamado.status == 'A iniciar' && (!temTecnico || isAdmin))
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => setState(() {
-                                chamado.status = 'Em andamento';
-                                chamado.tecnico = widget.usuario?.nome;
-                              }),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                              child: Text(temTecnico ? "Assumir" : "Atender", style: const TextStyle(color: Colors.white)),
-                            ),
-                          ),
+                    if (chamado.status == 'A iniciar')
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final meuNome = widget.usuario?.nome ?? 'Técnico';
+
+                          // CHECAGEM CRUCIAL: Se o técnico for nulo ou vazio, ATENDE DIRETO
+                          if (chamado.tecnico == null || 
+                              chamado.tecnico!.isEmpty || 
+                              chamado.tecnico == 'Não atribuído' || 
+                              chamado.tecnico == 'null') {
+                            
+                            setState(() {
+                              chamado.status = 'Em andamento';
+                              chamado.tecnico = meuNome;
+                            });
+
+                            // Salva no banco sem abrir nenhuma janela/dialog
+                            _atualizarChamadoNoBanco(chamado, {
+                              'status': 'Em andamento',
+                              'tecnico': meuNome,
+                            });
+                          } 
+                          // Se JÁ TIVER um nome de técnico, aí sim ele pede a troca
+                          else {
+                            _confirmarTrocaTecnico(chamado);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: (chamado.tecnico == null || chamado.tecnico!.isEmpty) 
+                              ? Colors.blue 
+                              : Colors.blueGrey,
+                        ),
+                        child: Text(
+                          (chamado.tecnico == null || chamado.tecnico!.isEmpty) ? "Atender" : "Assumir",
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
 
                         // --- STATUS: EM ANDAMENTO ---
                         if (chamado.status == 'Em andamento') ...[
-                          if (isResponsavel || isAdmin) ...[
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => setState(() => chamado.status = 'Aguardando Confirmação'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange,
-                                  padding: EdgeInsets.zero,
-                                ),
-                                child: const Text("Finalizar", style: TextStyle(color: Colors.white, fontSize: 12)),
+                        if (isResponsavel || isAdmin) ...[
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                setState(() => chamado.status = 'Aguardando Confirmação');
+                                _atualizarChamadoNoBanco(chamado, {'status': 'Aguardando Confirmação'});
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                padding: EdgeInsets.zero,
                               ),
+                              child: const Text("Finalizar", style: TextStyle(color: Colors.white, fontSize: 12)),
                             ),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => _definirClassificacao(chamado),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.purple,
-                                  padding: EdgeInsets.zero,
-                                ),
-                                child: const Text("Classificar", style: TextStyle(color: Colors.white, fontSize: 12)),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _definirClassificacao(chamado),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple,
+                                padding: EdgeInsets.zero,
                               ),
+                              child: const Text("Classificar", style: TextStyle(color: Colors.white, fontSize: 12)),
                             ),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => _registrarPendencia(chamado),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blueGrey,
-                                  padding: EdgeInsets.zero,
-                                ),
-                                child: const Text("Pendência", style: TextStyle(color: Colors.white, fontSize: 12)),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _registrarPendencia(chamado),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blueGrey,
+                                padding: EdgeInsets.zero,
                               ),
+                              child: const Text("Pendência", style: TextStyle(color: Colors.white, fontSize: 12)),
                             ),
+                          ),
                           ] else ...[
                             Expanded(
                               child: Column(
@@ -1113,16 +1234,11 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
                             Expanded(
                               child: Column(
                                 children: [
-                                  Text(
-                                    "Pendente com: ${chamado.tecnico}",
-                                    style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic, fontSize: 12),
-                                    textAlign: TextAlign.center,
-                                  ),
                                   const SizedBox(height: 5),
                                   ElevatedButton(
                                     onPressed: () => _confirmarTrocaTecnico(chamado),
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
-                                    child: const Text("Assumir", style: TextStyle(color: Colors.white, fontSize: 11)),
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 240, 207, 20)),
+                                    child: const Text("Atender", style: TextStyle(color: Colors.black, fontSize: 11)),
                                   ),
                                 ],
                               ),
@@ -1162,31 +1278,56 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
     );
   }
 
-  // FUNÇÃO QUE RESOLVE O ERRO:
-  void _confirmarTrocaTecnico(dynamic chamado) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Assumir Chamado"),
-        content: Text("Deseja transferir o atendimento de ${chamado.tecnico} para o seu nome?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                chamado.tecnico = widget.usuario?.nome;
-                chamado.status = 'Em andamento';
-              });
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
-            child: const Text("Confirmar Troca", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+          // FUNÇÃO QUE RESOLVE O ERRO:
+          void _confirmarTrocaTecnico(dynamic chamado) {
+  final meuNome = widget.usuario?.nome ?? 'Técnico';
+
+  // TRAVA DE SEGURANÇA: Se o técnico for nulo, vazio ou 'null', 
+  // ela atende direto e SAI da função sem mostrar o Dialog.
+  if (chamado.tecnico == null || 
+      chamado.tecnico.toString().isEmpty || 
+      chamado.tecnico.toString() == 'null' ||
+      chamado.tecnico.toString() == 'Não atribuído') {
+    
+    setState(() {
+      chamado.tecnico = meuNome;
+      chamado.status = 'Em andamento';
+    });
+    _atualizarChamadoNoBanco(chamado, {
+      'tecnico': meuNome,
+      'status': 'Em andamento',
+    });
+    return; // Mata a função aqui e não deixa o showDialog rodar
   }
-} // <--- FIM DA CLASSE DASHBOARD SUPORTE
+
+          // Se passou da trava acima, significa que REALMENTE tem outro técnico lá.
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("Assumir Chamado"),
+              content: Text("Deseja transferir o atendimento de ${chamado.tecnico} para o seu nome?"),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      chamado.tecnico = meuNome;
+                      chamado.status = 'Em andamento';
+                    });
+                    _atualizarChamadoNoBanco(chamado, {
+                      'tecnico': meuNome,
+                      'status': 'Em andamento',
+                    });
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                  child: const Text("Confirmar Troca", style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+          );
+        }
+      } // <--- FIM DA CLASSE DASHBOARD SUPORTE
 
 
  class DashboardAdmin extends StatefulWidget {
