@@ -887,14 +887,28 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async { // Adicionamos async para esperar o banco
               if (justCtrl.text.isNotEmpty) {
+                final novoTextoJustificativa = "${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}";
+                final meuNome = widget.usuario?.nome ?? 'Técnico';
+
                 setState(() {
                   chamado.status = 'Pendente';
-                  chamado.justificativas = List.from(chamado.justificativas)
-                    ..add("${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}");
+                  // Atualiza a lista local para aparecer na tela na hora
+                  chamado.justificativas = List.from(chamado.justificativas)..add(novoTextoJustificativa);
+                  // Garante que o técnico que está mexendo seja o responsável
+                  chamado.tecnico = meuNome; 
                 });
-                Navigator.pop(ctx);
+
+                // --- SALVAMENTO REAL NO BANCO ---
+                await _atualizarChamadoNoBanco(chamado, {
+                  'status': 'Pendente',
+                  'tecnico_responsavel': meuNome, // Usando o nome exato da coluna do seu banco
+                  // Como você não tem a coluna 'justificativas', 
+                  // o ideal seria salvar esse texto em algum campo de log ou observação do banco se existir.
+                });
+
+                if (context.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text("Salvar Pendência"),
@@ -2510,40 +2524,50 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
   }
 
   void _reabrirChamado(Chamado chamado) {
-    final obsCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Reabrir Chamado"),
-        content: TextField(
-          controller: obsCtrl,
-          decoration: const InputDecoration(labelText: "Motivo da reabertura"),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          ElevatedButton(
-            onPressed: () {
-              if (obsCtrl.text.isNotEmpty) {
-                setState(() {
-                  chamado.status = 'A iniciar';
-                  chamado.dataFinalizacao = null;
-                  chamado.observacoes = List.from(chamado.observacoes)
-                    ..add("Reaberto por Admin em ${DateTime.now().day}/${DateTime.now().month}: ${obsCtrl.text}");
-                });
-                Navigator.pop(ctx);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Por favor, descreva o motivo.")),
-                );
-              }
-            },
-            child: const Text("Enviar"),
-          )
-        ],
+  final obsCtrl = TextEditingController();
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Reabrir Chamado"),
+      content: TextField(
+        controller: obsCtrl,
+        decoration: const InputDecoration(labelText: "Motivo da reabertura"),
+        maxLines: 3,
       ),
-    );
-  }
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+        ElevatedButton(
+          onPressed: () async { // Adicionado async
+            if (obsCtrl.text.isNotEmpty) {
+              final novaObs = "Reaberto por Admin em ${DateTime.now().day}/${DateTime.now().month}: ${obsCtrl.text}";
+              
+              // 1. Atualiza a interface localmente
+              setState(() {
+                chamado.status = 'A iniciar';
+                chamado.dataFinalizacao = null;
+                chamado.observacoes = List.from(chamado.observacoes)..add(novaObs);
+              });
+
+              // 2. SALVA NO SUPABASE (Crucial para não perder o dado)
+              await _atualizarChamadoNoBanco(chamado, {
+                'status': 'A iniciar',
+                'data_finalizacao': null,
+                'observacoes': chamado.observacoes, // Enviando a lista atualizada
+              });
+
+              if (mounted) Navigator.pop(ctx);
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Por favor, descreva o motivo.")),
+              );
+            }
+          },
+          child: const Text("Enviar"),
+        )
+      ],
+    ),
+  );
+}
 
   void _registrarPendencia(Chamado chamado) {
     final justCtrl = TextEditingController();
@@ -2559,14 +2583,26 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (justCtrl.text.isNotEmpty) {
+                // Se você não passou o usuario para a tela, use 'Admin' fixo.
+                // Se passou, use: widget.usuario?.nome ?? 'Admin'
+                final nomeResponsavel = 'Admin'; 
+                final novaJustificativa = "${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}";
+
                 setState(() {
                   chamado.status = 'Pendente';
-                  chamado.justificativas = List.from(chamado.justificativas)
-                    ..add("${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}");
+                  chamado.tecnico = nomeResponsavel; // Registra quem mudou
+                  chamado.justificativas = List.from(chamado.justificativas)..add(novaJustificativa);
                 });
-                Navigator.pop(ctx);
+
+                // SALVANDO NO SUPABASE
+                await _atualizarChamadoNoBanco(chamado, {
+                  'status': 'Pendente',
+                  'tecnico': nomeResponsavel, // Garante o registro no banco
+                });
+
+                if (context.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text("Salvar Pendência"),
@@ -2576,6 +2612,25 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
     );
   }
   // --- FIM DO BLOCO NOVO ---
+
+  // Cole isso dentro da classe DashboardAdmin para o erro sumir
+  Future<void> _atualizarChamadoNoBanco(Chamado chamado, Map<String, dynamic> dados) async {
+    try {
+      await Supabase.instance.client
+          .from('chamados')
+          .update(dados)
+          .eq('id', chamado.id);
+      debugPrint("Banco atualizado pelo Admin com sucesso!");
+    } catch (e) {
+      debugPrint("Erro ao salvar no banco (Admin): $e");
+      // Feedback visual se o salvamento falhar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erro ao salvar no banco de dados.")),
+        );
+      }
+    }
+  }
 
   Widget _buildListaChamadosAdmin(bool finalizados) {
   final lista = bancoDeDadosGlobal
@@ -2659,22 +2714,35 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
+                        // --- BOTÃO ATENDER ---
                         if (c.status == 'A iniciar')
-                          Expanded( // Adicionado Expanded aqui para manter padrão
+                          Expanded(
                             child: ElevatedButton(
-                              onPressed: () => setState(() {
-                                c.status = 'Em andamento';
-                                c.tecnico = 'Admin';
-                              }),
+                              onPressed: () async {
+                                final nomeAdmin = 'Admin'; 
+                                setState(() {
+                                  c.status = 'Em andamento';
+                                  c.tecnico = nomeAdmin;
+                                });
+                                // SALVA NO BANCO
+                                await _atualizarChamadoNoBanco(c, {
+                                  'status': 'Em andamento',
+                                  'tecnico': nomeAdmin,
+                                });
+                              },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                               child: const Text("Atender", style: TextStyle(color: Colors.white)),
                             ),
                           ),
-                          
+
+                        // --- BOTÕES EM ANDAMENTO ---
                         if (c.status == 'Em andamento') ...[
-                          Expanded( // Botão Finalizar
+                          Expanded(
                             child: ElevatedButton(
-                              onPressed: () => setState(() => c.status = 'Aguardando Confirmação'),
+                              onPressed: () async {
+                                setState(() => c.status = 'Aguardando Confirmação');
+                                await _atualizarChamadoNoBanco(c, {'status': 'Aguardando Confirmação'});
+                              },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange,
                                 padding: EdgeInsets.zero,
@@ -2683,18 +2751,18 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
                             ),
                           ),
                           const SizedBox(width: 5),
-                          Expanded( // Adicionado Expanded para o Classificar
+                          Expanded(
                             child: ElevatedButton(
                               onPressed: () => _definirClassificacao(c),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.purple,
-                                padding: EdgeInsets.zero, // Padding zero ajuda a caber o texto
+                                padding: EdgeInsets.zero,
                               ),
                               child: const Text("Classificar", style: TextStyle(color: Colors.white, fontSize: 12)),
                             ),
                           ),
                           const SizedBox(width: 5),
-                          Expanded( // Adicionado Expanded para o Pendência
+                          Expanded(
                             child: ElevatedButton(
                               onPressed: () => _registrarPendencia(c),
                               style: ElevatedButton.styleFrom(
@@ -2705,24 +2773,36 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
                             ),
                           ),
                         ],
-                        
+
+                        // --- BOTÃO RETOMAR (Quando está Pendente) ---
                         if (c.status == 'Pendente') ...[
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => setState(() => c.status = 'Em andamento'),
+                              onPressed: () async {
+                                setState(() => c.status = 'Em andamento');
+                                await _atualizarChamadoNoBanco(c, {'status': 'Em andamento'});
+                              },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                               child: const Text("Retomar", style: TextStyle(color: Colors.white)),
                             ),
                           ),
                         ],
-                        
+
+                        // --- FINALIZAÇÃO ---
                         if (c.status == 'Aguardando Confirmação') ...[
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => setState(() {
-                                c.status = 'Finalizado';
-                                c.dataFinalizacao = DateTime.now();
-                              }),
+                              onPressed: () async {
+                                final dataFin = DateTime.now();
+                                setState(() {
+                                  c.status = 'Finalizado';
+                                  c.dataFinalizacao = dataFin;
+                                });
+                                await _atualizarChamadoNoBanco(c, {
+                                  'status': 'Finalizado',
+                                  'data_finalizacao': dataFin.toIso8601String(),
+                                });
+                              },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                               child: const Text("Solucionado", style: TextStyle(color: Colors.white)),
                             ),
