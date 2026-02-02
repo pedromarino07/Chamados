@@ -805,33 +805,30 @@ class DashboardSuporte extends StatefulWidget {
 class _DashboardSuporteState extends State<DashboardSuporte> {
     int? _indiceExpandido;
 
-  void _definirClassificacao(Chamado chamado) {
-    String? selecionada = chamado.classificacao;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Definir Classificação"),
-        content: DropdownButtonFormField<String>(
-          value: selecionada,
-          items: listaClassificacoes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-          onChanged: (v) => selecionada = v,
-          decoration: const InputDecoration(labelText: "Classificação"),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                chamado.classificacao = selecionada;
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text("Salvar"),
-          )
-        ],
+  void _definirClassificacao(Chamado c) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Definir Classificação"),
+      content: DropdownButtonFormField<String>(
+        value: c.classificacao,
+        items: ['Hardware', 'Software', 'Rede', 'Impressora', 'Outros'] // Ajuste conforme sua lista
+            .map((cls) => DropdownMenuItem(value: cls, child: Text(cls)))
+            .toList(),
+        onChanged: (val) async {
+          if (val != null) {
+            setState(() => c.classificacao = val); // Atualiza a tela
+            
+            // SALVA NO BANCO
+            await _atualizarChamadoNoBanco(c, {'classificacao': val});
+            
+            if (mounted) Navigator.pop(ctx);
+          }
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
 
 
@@ -873,50 +870,43 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
   }
 
   // 3. FUNÇÃO DE REGISTRAR PENDÊNCIA
-  void _registrarPendencia(Chamado chamado) {
-    final justCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Registrar Pendência"),
-        content: TextField(
-          controller: justCtrl,
-          decoration: const InputDecoration(labelText: "Motivo da pendência (ex: Aguardando peça)"),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          ElevatedButton(
-            onPressed: () async { // Adicionamos async para esperar o banco
-              if (justCtrl.text.isNotEmpty) {
-                final novoTextoJustificativa = "${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}";
-                final meuNome = widget.usuario?.nome ?? 'Técnico';
-
-                setState(() {
-                  chamado.status = 'Pendente';
-                  // Atualiza a lista local para aparecer na tela na hora
-                  chamado.justificativas = List.from(chamado.justificativas)..add(novoTextoJustificativa);
-                  // Garante que o técnico que está mexendo seja o responsável
-                  chamado.tecnico = meuNome; 
-                });
-
-                // --- SALVAMENTO REAL NO BANCO ---
-                await _atualizarChamadoNoBanco(chamado, {
-                  'status': 'Pendente',
-                  'tecnico_responsavel': meuNome, // Usando o nome exato da coluna do seu banco
-                  // Como você não tem a coluna 'justificativas', 
-                  // o ideal seria salvar esse texto em algum campo de log ou observação do banco se existir.
-                });
-
-                if (context.mounted) Navigator.pop(ctx);
-              }
-            },
-            child: const Text("Salvar Pendência"),
-          )
-        ],
+  void _registrarPendencia(Chamado c) {
+  final justificativaCtrl = TextEditingController();
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Registrar Pendência"),
+      content: TextField(
+        controller: justificativaCtrl,
+        decoration: const InputDecoration(labelText: "Motivo da pausa"),
       ),
-    );
-  }
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+        ElevatedButton(
+          onPressed: () async {
+            if (justificativaCtrl.text.isNotEmpty) {
+              final texto = "Pausa: ${justificativaCtrl.text} (${DateTime.now().day}/${DateTime.now().month})";
+              
+              setState(() {
+                c.status = 'Pendente';
+                c.justificativas = List.from(c.justificativas)..add(texto);
+              });
+
+              // SALVA NO BANCO (Status + Lista de justificativas)
+              await _atualizarChamadoNoBanco(c, {
+                'status': 'Pendente',
+                'justificativas': c.justificativas,
+              });
+
+              if (mounted) Navigator.pop(ctx);
+            }
+          },
+          child: const Text("Confirmar"),
+        ),
+      ],
+    ),
+  );
+}
  
   // 2. FUNÇÃO DAS CORES
   Color _getCorPrazo(DateTime dataAbertura) {
@@ -2569,49 +2559,43 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
   );
 }
 
-  void _registrarPendencia(Chamado chamado) {
-    final justCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Registrar Pendência"),
-        content: TextField(
-          controller: justCtrl,
-          decoration: const InputDecoration(labelText: "Motivo da pendência (ex: Aguardando peça)"),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          ElevatedButton(
-            onPressed: () async {
-              if (justCtrl.text.isNotEmpty) {
-                // Se você não passou o usuario para a tela, use 'Admin' fixo.
-                // Se passou, use: widget.usuario?.nome ?? 'Admin'
-                final nomeResponsavel = 'Admin'; 
-                final novaJustificativa = "${DateTime.now().day}/${DateTime.now().month} - ${justCtrl.text}";
-
-                setState(() {
-                  chamado.status = 'Pendente';
-                  chamado.tecnico = nomeResponsavel; // Registra quem mudou
-                  chamado.justificativas = List.from(chamado.justificativas)..add(novaJustificativa);
-                });
-
-                // SALVANDO NO SUPABASE
-                await _atualizarChamadoNoBanco(chamado, {
-                  'status': 'Pendente',
-                  'tecnico': nomeResponsavel, // Garante o registro no banco
-                });
-
-                if (context.mounted) Navigator.pop(ctx);
-              }
-            },
-            child: const Text("Salvar Pendência"),
-          )
-        ],
+  void _registrarPendencia(Chamado c) {
+  final justificativaCtrl = TextEditingController();
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Registrar Pendência"),
+      content: TextField(
+        controller: justificativaCtrl,
+        decoration: const InputDecoration(labelText: "Motivo da pausa"),
       ),
-    );
-  }
-  // --- FIM DO BLOCO NOVO ---
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+        ElevatedButton(
+          onPressed: () async {
+            if (justificativaCtrl.text.isNotEmpty) {
+              final texto = "Pausa: ${justificativaCtrl.text} (${DateTime.now().day}/${DateTime.now().month})";
+              
+              setState(() {
+                c.status = 'Pendente';
+                c.justificativas = List.from(c.justificativas)..add(texto);
+              });
+
+              // SALVA NO BANCO (Status + Lista de justificativas)
+              await _atualizarChamadoNoBanco(c, {
+                'status': 'Pendente',
+                'justificativas': c.justificativas,
+              });
+
+              if (mounted) Navigator.pop(ctx);
+            }
+          },
+          child: const Text("Confirmar"),
+        ),
+      ],
+    ),
+  );
+}
 
   // Cole isso dentro da classe DashboardAdmin para o erro sumir
   Future<void> _atualizarChamadoNoBanco(Chamado chamado, Map<String, dynamic> dados) async {
