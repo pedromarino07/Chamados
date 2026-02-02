@@ -403,33 +403,35 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   List<Chamado> bancoDeDadosGlobal = [];
 
  @override
-  void initState() {
+void initState() {
   super.initState();
-  _tabController = TabController(length: 2, vsync: this);
-  
-  if (widget.usuario != null) {
-    _nome.text = widget.usuario!.login; // Usando o login do objeto Usuario
-  }
+  _buscarChamadosDoBanco(); // Busca inicial
 
-  // Busca os chamados assim que a tela abre
-  _buscarChamadosDoBanco();
+  // Ouvinte em tempo real:
+  Supabase.instance.client
+      .from('chamados')
+      .stream(primaryKey: ['id'])
+      .eq('solicitante', widget.usuario?.login.toLowerCase() ?? '')
+      .listen((data) {
+        _buscarChamadosDoBanco(); // Recarrega sempre que algo mudar no banco
+      });
 }
 
-Future<void> _buscarChamadosDoBanco() async {
-  try {
-    final loginParaBusca = widget.usuario?.login.toLowerCase() ?? '';
+  Future<void> _buscarChamadosDoBanco() async {
+    try {
+      final loginParaBusca = widget.usuario?.login.toLowerCase() ?? '';
 
-    // 2. BUSCAMOS OS CHAMADOS (não o usuário)
-    final response = await Supabase.instance.client
-        .from('chamados') // <--- Certifique-se que a tabela é 'chamados'
-        .select()
-        .ilike('solicitante', loginParaBusca) // Busca sem ligar para maiúsculas
-        .order('created_at', ascending: false);
+      final response = await Supabase.instance.client
+          .from('chamados')
+          .select()
+          .ilike('solicitante', loginParaBusca)
+          .order('created_at', ascending: false);
 
-    if (response == null) return;
+      if (response == null) return;
 
-    setState(() {
-      bancoDeDadosGlobal = (response as List).map((item) {
+      // Converter a resposta ANTES de chamar o setState para evitar confusão de blocos
+      final listaConvertida = (response as List).map((item) {
+        // 1. Tratamento da Data
         DateTime dataTratada;
         try {
           dataTratada = item['created_at'] != null 
@@ -439,20 +441,23 @@ Future<void> _buscarChamadosDoBanco() async {
           dataTratada = DateTime.now();
         }
 
-        // Tratamento da Urgência: se no banco for String (ex: 'normal'), 
-        // convertemos para o Enum. Se for Index (int), mantemos sua lógica.
+        // 2. Tratamento da Urgência
         NivelUrgencia urgencia;
-        if (item['urgencia'] is int) {
-          urgencia = NivelUrgencia.values[item['urgencia']];
+        final valorUrgencia = item['urgencia'];
+        if (valorUrgencia is int) {
+          urgencia = (valorUrgencia >= 0 && valorUrgencia < NivelUrgencia.values.length)
+              ? NivelUrgencia.values[valorUrgencia]
+              : NivelUrgencia.normal;
         } else {
           urgencia = NivelUrgencia.values.firstWhere(
-            (e) => e.name == item['urgencia'].toString(),
+            (e) => e.name == valorUrgencia?.toString(),
             orElse: () => NivelUrgencia.normal,
           );
         }
 
+        // 3. Retorno do objeto Chamado
         return Chamado(
-          id: item['id']?.toString() ?? 'S/ID', // Geralmente no Supabase o nome padrão é 'id'
+          id: item['id']?.toString() ?? 'S/ID',
           setor: item['setor']?.toString() ?? '',
           solicitante: item['solicitante']?.toString() ?? '',
           problema: item['problema']?.toString() ?? '',
@@ -460,13 +465,26 @@ Future<void> _buscarChamadosDoBanco() async {
           status: item['status']?.toString() ?? 'Pendente',
           urgencia: urgencia,
           dataHora: dataTratada,
+          tecnico: item['tecnico']?.toString(),
+          classificacao: item['classificacao']?.toString(),
+          justificativas: List<String>.from(item['justificativas'] ?? []),
+          observacoes: List<String>.from(item['observacoes'] ?? []),
+          dataFinalizacao: item['data_finalizacao'] != null 
+              ? DateTime.parse(item['data_finalizacao'].toString()) 
+              : null,
         );
       }).toList();
-    });
-    print("Total de chamados carregados para ${widget.usuario?.login}: ${bancoDeDadosGlobal.length}");
-  } catch (e) {
-    print("ERRO AO BUSCAR DADOS: $e");
-  }
+
+      // Agora sim, atualizamos o estado com a lista já pronta
+      setState(() {
+        bancoDeDadosGlobal = listaConvertida;
+      });
+
+      print("Total de chamados carregados: ${bancoDeDadosGlobal.length}");
+
+    } catch (e) {
+      print("ERRO AO BUSCAR DADOS: $e");
+    }
 }
 
   Future<void> _enviarChamado() async {
@@ -523,14 +541,23 @@ Future<void> _buscarChamadosDoBanco() async {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async { // Adicione async aqui
               if (obsCtrl.text.isNotEmpty) {
+                final novaObs = "Reaberto por ${widget.usuario?.nome ?? 'usuário'} em ${DateTime.now().day}/${DateTime.now().month}: ${obsCtrl.text}";
+                
+                // 1. Atualiza local
                 setState(() {
                   chamado.status = 'A iniciar';
-                  chamado.dataFinalizacao = null;
-                  chamado.observacoes = List.from(chamado.observacoes)
-                    ..add("Reaberto por ${widget.usuario?.nome ?? 'usuário'} em ${DateTime.now().day}/${DateTime.now().month}: ${obsCtrl.text}");
+                  chamado.observacoes.add(novaObs);
                 });
+
+                // 2. ATUALIZA NO SUPABASE (Faltava isso!)
+                await Supabase.instance.client.from('chamados').update({
+                  'status': 'A iniciar',
+                  'observacoes': chamado.observacoes,
+                  'data_finalizacao': null,
+                }).eq('id', chamado.id);
+
                 Navigator.pop(ctx);
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
