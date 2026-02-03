@@ -109,6 +109,14 @@ class Chamado {
   });
   
   factory Chamado.fromMap(Map<String, dynamic> map) {
+    // 1. Tratando o Enum de Urgência
+    // Pega o número do banco (ex: 0, 1 ou 2). Se for nulo, assume 1 (normal).
+    int urgenciaIndex = map['urgencia'] ?? 1;
+    
+    // Proteção: se o índice for maior que o enum, volta para normal
+    if (urgenciaIndex >= NivelUrgencia.values.length || urgenciaIndex < 0) {
+      urgenciaIndex = 1; 
+    }
   return Chamado(
     // Campos que são 'required' no seu construtor
     id: map['id']?.toString() ?? '',
@@ -467,28 +475,17 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   }
 
   Future<void> _buscarChamadosDoBanco() async {
-    try {
-      final loginParaBusca = widget.usuario?.nome ?? ''; // Tente usar o nome real
+  try {
+    final loginParaBusca = widget.usuario?.nome ?? '';
 
-      final response = await Supabase.instance.client
-          .from('chamados')
-          .select()
-          .ilike('solicitante', "%$loginParaBusca%") // O % ajuda a achar nomes parciais
-          .order('created_at', ascending: false);
+    final response = await Supabase.instance.client
+        .from('chamados')
+        .select()
+        .ilike('solicitante', "%$loginParaBusca%")
+        .order('created_at', ascending: false);
 
-      if (response is List) {
-        // O segredo para não dar erro de tipo é o .cast<Map<String, dynamic>>()
-        final List<Chamado> lista = response
-            .cast<Map<String, dynamic>>() 
-            .map((item) => Chamado.fromMap(item))
-            .toList();
-
-        setState(() {
-          bancoDeDadosGlobal = lista;
-        });
-      }
-
-      // Converter a resposta ANTES de chamar o setState para evitar confusão de blocos
+    if (response != null && response is List) {
+      // Converter a resposta ANTES de chamar o setState
       final listaConvertida = (response as List).map((item) {
         // 1. Tratamento da Data
         DateTime dataTratada;
@@ -522,29 +519,29 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
           problema: item['problema']?.toString() ?? '',
           ramal: item['ramal']?.toString() ?? '',
           status: item['status']?.toString() ?? 'Pendente',
-          urgencia: urgencia,
+          urgencia: urgencia, // AQUI: Usamos a variável 'urgencia' que criamos acima
           dataHora: dataTratada,
           tecnico: item['tecnico']?.toString() ?? 'Não atribuído', 
           classificacao: item['classificacao']?.toString() ?? 'Geral',
           observacoes: List<String>.from(item['observacoes'] ?? []),
           justificativas: List<String>.from(item['justificativas'] ?? []),
           dataFinalizacao: item['data_finalizacao'] != null 
-              ? DateTime.parse(item['data_finalizacao'].toString()) 
+              ? DateTime.tryParse(item['data_finalizacao'].toString()) 
               : null,
         );
       }).toList();
 
-      // Agora sim, atualizamos o estado com a lista já pronta
+      // Agora atualizamos o estado
       setState(() {
         bancoDeDadosGlobal = listaConvertida;
       });
 
       print("Total de chamados carregados: ${bancoDeDadosGlobal.length}");
-
-    } catch (e) {
-      print("ERRO AO BUSCAR DADOS: $e");
     }
-}
+  } catch (e) {
+    print("ERRO AO BUSCAR DADOS: $e");
+  }
+} // Esta última chave agora fecha a função corretamente
 
   Future<void> _enviarChamado() async {
     if (_problema.text.isEmpty) {
@@ -1135,6 +1132,9 @@ class _DashboardSuporteState extends State<DashboardSuporte> {
     final response = await Supabase.instance.client
         .from('chamados')
         .select()
+        // 1º Critério: Urgência (2 vem antes de 1, que vem antes de 0)
+        .order('urgencia', ascending: false) 
+        // 2º Critério: Os mais recentes dentro do mesmo nível de urgência
         .order('created_at', ascending: false);
 
     if (response == null) return;
