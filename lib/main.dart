@@ -513,8 +513,8 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
           dataHora: dataTratada,
           tecnico: item['tecnico']?.toString() ?? 'Não atribuído', 
           classificacao: item['classificacao']?.toString() ?? 'Geral',
-          justificativas: List<String>.from(item['justificativas'] ?? []), // Pega as pausas/pendências
           observacoes: List<String>.from(item['observacoes'] ?? []),
+          justificativas: List<String>.from(item['justificativas'] ?? []),
           dataFinalizacao: item['data_finalizacao'] != null 
               ? DateTime.parse(item['data_finalizacao'].toString()) 
               : null,
@@ -573,41 +573,61 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
     }
   }
 
-    void _reabrirChamado(Chamado chamado) {
-    final obsCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Reabrir Chamado"),
-        content: TextField(
-          controller: obsCtrl,
-          decoration: const InputDecoration(labelText: "Justificativa da Reabertura"),
+   void _reabrirChamado(Chamado chamado) {
+   final obsCtrl = TextEditingController();
+   showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Reabrir Chamado"),
+      content: TextField(
+        controller: obsCtrl,
+        decoration: const InputDecoration(
+          labelText: "Justificativa da Reabertura",
+          hintText: "Diga o que ainda não foi resolvido...",
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("VOLTAR")),
-          ElevatedButton(
-            onPressed: () async {
-              if (obsCtrl.text.isEmpty) return;
+        maxLines: 3,
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("VOLTAR")),
+        ElevatedButton(
+          onPressed: () async {
+          if (obsCtrl.text.isEmpty) return;
 
-              // 1. Atualiza no Banco de Dados
-              await _atualizarChamadoNoBanco(chamado, {
-                'status': 'Em andamento', // Faz o chamado voltar para a lista do técnico
-                'observacoes': '${chamado.observacoes}\n\nREABERTO: ${obsCtrl.text}'
-              });
+          // 1. Criamos a nova mensagem
+          final novaMensagem = "--- REABERTO POR USUÁRIO ---\nMotivo: ${obsCtrl.text}";
 
-              // 2. Atualiza a tela localmente
-              setState(() {
-                chamado.status = 'Em andamento';
-              });
+          // 2. Preparamos a lista ATUALIZADA (Histórico que já existe + nova mensagem)
+          // Isso garante que não apague o que o técnico escreveu
+          final novaListaObservacoes = [...chamado.observacoes, novaMensagem];
 
-              Navigator.pop(ctx);
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Chamado reaberto com sucesso!")),
-              );
-            },
-            child: const Text("REABRIR"),
-          ),
+          try {
+            // 3. Atualiza no Banco (Supabase) enviando a LISTA
+            await _atualizarChamadoNoBanco(chamado, {
+              'status': 'Em andamento',
+              'observacoes': novaListaObservacoes, 
+            });
+
+            // 4. Atualiza a tela localmente via setState
+            setState(() {
+              chamado.status = 'Em andamento';
+              // Atribuímos a nova lista completa ao objeto para a UI redesenhar
+              chamado.observacoes = novaListaObservacoes; 
+            });
+
+            Navigator.pop(ctx);
+            
+            // 5. Opcional: Chama a busca para garantir que os dados do banco e tela são iguais
+            _buscarChamadosDoBanco();
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Chamado enviado de volta para o técnico!")),
+            );
+              } catch (e) {
+                print("Erro ao reabrir: $e");
+              } // <--- Fecha o bloco try/catch
+            }, // <--- Fecha o onPressed (o async { ... })
+            child: const Text("REABRIR"), // <--- O parâmetro obrigatório que faltava
+          ), // <--- Fecha o ElevatedButton
         ],
       ),
     );
@@ -867,7 +887,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
                                   const SizedBox(height: 10),
                                   const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
                                   Text(c.problema),
-                                  
+                                              
                                   if (c.justificativas.isNotEmpty) ...[
                                     const Divider(),
                                     const Text("💬 Notas do Técnico:", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -885,6 +905,47 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
                                         label: const Text("CANCELAR CHAMADO", style: TextStyle(color: Colors.white)),
                                       ),
                                     ),
+                                  ],
+
+                                  // 1. Mostrar o Técnico Responsável (se houver)
+                                  if (c.tecnico != 'Não atribuído')
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                      child: Text("👨‍🔧 Técnico: ${c.tecnico}", 
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                                    ),
+
+                                  const Divider(),
+
+                                  // 2. Mostrar Observações do Técnico (Pendências e Comentários)
+                                  if (c.observacoes.isNotEmpty) ...[
+                                    const Text("📝 Histórico/Observações:", 
+                                      style: TextStyle(fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 5),
+                                    ...c.observacoes.map((obs) => Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(bottom: 4),
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber[50],
+                                        borderRadius: BorderRadius.circular(5),
+                                        // CORREÇÃO 1: Forma correta de declarar apenas uma borda lateral
+                                        border: Border(left: BorderSide(color: Colors.amber[700]!, width: 3)),
+                                      ),
+                                      child: Text(obs, style: const TextStyle(fontSize: 13)),
+                                    )).toList(),
+                                  ],
+
+                                  // 3. Mostrar Justificativas de Pausa/Pendência
+                                  if (c.justificativas.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    const Text("⏳ Pausas/Pendências:", 
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                                    ...c.justificativas.map((just) => Padding(
+                                      padding: const EdgeInsets.only(left: 8.0, top: 2),
+                                      // CORREÇÃO 2: Removido o 'const' antes do TextStyle pois usamos Colors.red[900]
+                                      child: Text("• $just", style: TextStyle(fontSize: 12, color: Colors.red[900])),
+                                    )).toList(),
                                   ],
 
                                   // CASO 2: Chamado Finalizado pelo técnico (Aguardando aceite do usuário)
