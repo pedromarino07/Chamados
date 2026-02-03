@@ -1278,18 +1278,14 @@ void initState() {
         final chamado = lista[i];
         
         // --- PADRONIZAÇÃO DE STATUS ---
-        String statusLimpo = chamado.status.toUpperCase();
-        bool isFinalizado = statusLimpo.contains('FINALIZADO') || statusLimpo.contains('CONCLUÍDO') || statusLimpo.contains('CONCLUIDO');
+        String statusUpper = chamado.status.toUpperCase().trim();
+        bool isConcluido = statusUpper.contains('FINALIZADO') || 
+                           statusUpper.contains('CONCLUÍDO') || 
+                           statusUpper.contains('CONCLUIDO');
 
         final bool isAdmin = widget.usuario?.perfil == TipoPerfil.admin;
-        final bool isResponsavel = chamado.tecnico == widget.usuario?.login || chamado.tecnico == widget.usuario?.nome;
-
-        String statusUpper = chamado.status.toUpperCase();
-  
-        // Esta é a linha que o VS Code está sentindo falta:
-        bool isConcluido = statusUpper.contains('FINALIZADO') || 
-                          statusUpper.contains('CONCLUÍDO') || 
-                          statusUpper.contains('CONCLUIDO');
+        final bool isResponsavel = chamado.tecnico == widget.usuario?.login || 
+                                   chamado.tecnico == widget.usuario?.nome;
 
         Color corStatus;
           if (isConcluido) {
@@ -1301,102 +1297,77 @@ void initState() {
           }
 
         return Card(
-            elevation: 4,
-            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-            // Padronizado: Concluído fica cinza, aberto fica Bege
-            color: isConcluido ? Colors.grey[200] : const Color(0xFFFFE6CB),
-            child: ExpansionTile(
-              key: GlobalKey(),
-              initiallyExpanded: i == _indiceExpandido,
-              onExpansionChanged: (bool expandido) {
-                setState(() {
-                  _indiceExpandido = expandido ? i : null;
-                });
-              },
-              leading: CircleAvatar(
-                backgroundColor: corStatus,
-                child: Icon(
-                  isConcluido ? Icons.check : Icons.priority_high,
-                  color: Colors.white,
-                ),
+          elevation: 4,
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          color: isConcluido ? Colors.grey[200] : const Color(0xFFFFE6CB),
+          child: ExpansionTile(
+            key: GlobalKey(),
+            initiallyExpanded: i == _indiceExpandido,
+            onExpansionChanged: (bool expandido) {
+              setState(() => _indiceExpandido = expandido ? i : null);
+            },
+            leading: CircleAvatar(
+              backgroundColor: corStatus,
+              child: Icon(
+                isConcluido ? Icons.check : Icons.priority_high,
+                color: Colors.white,
               ),
-              title: Text(
-                "#${chamado.id} | ${chamado.setor} - ${chamado.solicitante}",
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text("Status: ${chamado.status} | Urgência: ${chamado.urgencia.name.toUpperCase()}"),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // RESTAURADO: Data com Hora de Abertura
-                      Text("📅 Abertura: ${chamado.dataHora.day}/${chamado.dataHora.month}/${chamado.dataHora.year} às ${chamado.dataHora.hour}:${chamado.dataHora.minute.toString().padLeft(2, '0')}"),
-                      
-                      if (chamado.dataFinalizacao != null)
-                        Text("🏁 Finalizado em: ${chamado.dataFinalizacao!.day}/${chamado.dataFinalizacao!.month}/${chamado.dataFinalizacao!.year} às ${chamado.dataFinalizacao!.hour}:${chamado.dataFinalizacao!.minute.toString().padLeft(2, '0')}"),
-                      
-                      // RESTAURADO: Classificação
-                      Text("🏷️ Classificação: ${chamado.classificacao ?? 'Não definida'}"),
-                      
-                      Text("👨‍🔧 Técnico: ${chamado.tecnico ?? 'Não atribuído'}"),
-                      const SizedBox(height: 8),
-                      const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text(chamado.problema),
+            ),
+            title: Text(
+              "#${chamado.id} | ${chamado.setor} - ${chamado.solicitante}",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text("Status: ${chamado.status} | Urgência: ${chamado.urgencia.name.toUpperCase()}"),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // HORA E DATA RESTAURADAS
+                    Text("📅 Abertura: ${chamado.dataHora.day}/${chamado.dataHora.month}/${chamado.dataHora.year} às ${chamado.dataHora.hour}:${chamado.dataHora.minute.toString().padLeft(2, '0')}"),
+                    
+                    if (chamado.dataFinalizacao != null)
+                      Text("🏁 Finalizado em: ${chamado.dataFinalizacao!.day}/${chamado.dataFinalizacao!.month}/${chamado.dataFinalizacao!.year} às ${chamado.dataFinalizacao!.hour}:${chamado.dataFinalizacao!.minute.toString().padLeft(2, '0')}"),
+                    
+                    // CLASSIFICAÇÃO RESTAURADA
+                    Text("🏷️ Classificação: ${chamado.classificacao ?? 'Não definida'}"),
+                    
+                    Text("👨‍🔧 Técnico: ${chamado.tecnico ?? 'Não atribuído'}"),
+                    const SizedBox(height: 8),
+                    const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text(chamado.problema),
 
-                      // Histórico de Reaberturas (Notas do Usuário)
-                      if (chamado.observacoes.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        const Text("⚠️ Histórico de Reaberturas:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-                        ...chamado.observacoes.map((obs) => Padding(
-                          padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-                          child: Text("• $obs", style: const TextStyle(fontSize: 13)),
-                        )),
-                      ],
+                    // HISTÓRICOS
+                    if (chamado.observacoes.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text("⚠️ Histórico de Reaberturas:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                      ...chamado.observacoes.map((obs) => Padding(
+                        padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+                        child: Text("• $obs", style: const TextStyle(fontSize: 13)),
+                      )),
+                    ],
 
-                      // RESTAURADO: Histórico de Pendências (Justificativas do Técnico)
-                      if (chamado.justificativas.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        const Text("⏳ Histórico de Pendências (Técnico):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                        ...chamado.justificativas.map((just) => Padding(
-                          padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-                          child: Text("• $just", style: const TextStyle(fontSize: 13)),
-                        )),
-                      ],
+                    if (chamado.justificativas.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text("⏳ Histórico de Pendências:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                      ...chamado.justificativas.map((just) => Padding(
+                        padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+                        child: Text("• $just", style: const TextStyle(fontSize: 13)),
+                      )),
+                    ],
 
-                      const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          // --- STATUS: A INICIAR ---
-                          if (statusUpper == 'A INICIAR' || chamado.status == 'A iniciar') 
+                    // --- BOTÕES DE AÇÃO ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        // BOTÃO ATENDER (CORRIGIDO)
+                        if (statusUpper == 'A INICIAR') 
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () {
-                                final meuNome = widget.usuario?.nome ?? 'Técnico';
-                                
-                                // Se não tem técnico ou está como 'Não atribuído'
-                                if (chamado.tecnico == null || 
-                                    chamado.tecnico!.isEmpty || 
-                                    chamado.tecnico == 'Não atribuído' || 
-                                    chamado.tecnico == 'null') {
-                                  
-                                  setState(() {
-                                    chamado.status = 'Em andamento';
-                                    chamado.tecnico = meuNome;
-                                  });
-
-                                  _atualizarChamadoNoBanco(chamado, {
-                                    'status': 'Em andamento',
-                                    'tecnico': meuNome,
-                                  });
-                                } else {
-                                  // Se já tem outro técnico, abre o aviso para trocar
-                                  _confirmarTrocaTecnico(chamado);
-                                }
-                              },
+                              onPressed: () => _confirmarTrocaTecnico(chamado),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') 
                                     ? Colors.blue 
@@ -1409,55 +1380,42 @@ void initState() {
                             ),
                           ),
 
-                          // --- STATUS: EM ANDAMENTO ---
-                          if (chamado.status == 'Em andamento') ...[
-                            if (isResponsavel || isAdmin) ...[
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    setState(() => chamado.status = 'Aguardando Confirmação');
-                                    _atualizarChamadoNoBanco(chamado, {'status': 'Aguardando Confirmação'});
-                                  },
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, padding: EdgeInsets.zero),
-                                  child: const Text("Finalizar", style: TextStyle(color: Colors.white, fontSize: 12)),
-                                ),
+                        // BOTÕES EM ANDAMENTO
+                        if (statusUpper == 'EM ANDAMENTO') ...[
+                          if (isResponsavel || isAdmin) ...[
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  setState(() => chamado.status = 'Aguardando Confirmação');
+                                  _atualizarChamadoNoBanco(chamado, {'status': 'Aguardando Confirmação'});
+                                },
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, padding: EdgeInsets.zero),
+                                child: const Text("Finalizar", style: TextStyle(color: Colors.white, fontSize: 12)),
                               ),
-                              const SizedBox(width: 5),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () => _definirClassificacao(chamado),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, padding: EdgeInsets.zero),
-                                  child: const Text("Classificar", style: TextStyle(color: Colors.white, fontSize: 12)),
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () => _registrarPendencia(chamado),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, padding: EdgeInsets.zero),
-                                  child: const Text("Pendência", style: TextStyle(color: Colors.white, fontSize: 12)),
-                                ),
-                              ),
-                            ]
-                          ],
+                            ),
+                            const SizedBox(width: 5),
+                            Expanded(child: ElevatedButton(onPressed: () => _definirClassificacao(chamado), style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, padding: EdgeInsets.zero), child: const Text("Classificar", style: TextStyle(color: Colors.white, fontSize: 12)))),
+                            const SizedBox(width: 5),
+                            Expanded(child: ElevatedButton(onPressed: () => _registrarPendencia(chamado), style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, padding: EdgeInsets.zero), child: const Text("Pendência", style: TextStyle(color: Colors.white, fontSize: 12)))),
+                          ]
+                        ],
 
-                          // --- STATUS: PENDENTE ---
-                          if (chamado.status == 'Pendente') ...[
-                            if (isResponsavel || isAdmin)
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    setState(() => chamado.status = 'Em andamento');
-                                    _atualizarChamadoNoBanco(chamado, {'status': 'Em andamento'});
-                                  },
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                                  child: const Text("Retomar Atendimento", style: TextStyle(color: Colors.white, fontSize: 12)),
-                                ),
-                              )
-                          ],
+                        // BOTÃO PENDENTE
+                        if (statusUpper == 'PENDENTE')
+                          if (isResponsavel || isAdmin)
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  setState(() => chamado.status = 'Em andamento');
+                                  _atualizarChamadoNoBanco(chamado, {'status': 'Em andamento'});
+                                },
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                                child: const Text("Retomar Atendimento", style: TextStyle(color: Colors.white, fontSize: 12)),
+                              ),
+                            ),
 
-                        // --- STATUS: AGUARDANDO CONFIRMAÇÃO ---
-                        if (chamado.status == 'Aguardando Confirmação') ...[
+                        // BOTÕES AGUARDANDO CONFIRMAÇÃO
+                        if (statusUpper == 'AGUARDANDO CONFIRMAÇÃO') ...[
                           Expanded(
                             child: ElevatedButton(
                               onPressed: () {
