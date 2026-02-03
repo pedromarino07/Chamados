@@ -8,6 +8,13 @@ import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 List<Chamado> bancoDeDadosGlobal = [];
 
+// Exemplo de boa prática
+class StatusChamado {
+  static const String aguardando = 'Aguardando Confirmação';
+  static const String finalizado = 'Finalizado';
+  static const String emAndamento = 'Em andamento';
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Garante a inicialização do Flutter
 
@@ -58,7 +65,7 @@ class SistemaChamados extends StatelessWidget {
             final usuario = settings.arguments as Usuario?;
             return MaterialPageRoute(builder: (_) => DashboardSuporte(usuario: usuario));
           case '/admin':
-            return MaterialPageRoute(builder: (_) => const DashboardAdmin());
+            return MaterialPageRoute(builder: (_) => DashboardAdmin());
           default:
             return MaterialPageRoute(builder: (_) => const TelaLogin());
         }
@@ -100,6 +107,28 @@ class Chamado {
     this.observacoes = const [],
     this.justificativas = const [],
   });
+  
+  factory Chamado.fromMap(Map<String, dynamic> map) {
+  return Chamado(
+    // Campos que são 'required' no seu construtor
+    id: map['id']?.toString() ?? '',
+    setor: map['setor']?.toString() ?? 'Geral',
+    solicitante: map['solicitante']?.toString() ?? 'Anônimo',
+    problema: map['problema']?.toString() ?? 'Sem descrição',
+    ramal: map['ramal']?.toString() ?? 'N/A',
+    
+    // Tratamento de Data
+    dataHora: map['created_at'] != null 
+        ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
+        : DateTime.now(),
+
+    // Campos que NÃO são required (opcionais)
+    status: map['status']?.toString() ?? 'A iniciar',
+    tecnico: map['tecnico']?.toString() ?? 'Não atribuído',
+    classificacao: map['classificacao']?.toString() ?? 'Não definida',
+    urgencia: NivelUrgencia.normal, // Fixamos para não dar erro de tipo
+  );
+}
 }
 
 // Lista global simulando um banco de dados para o teste
@@ -401,33 +430,50 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
   late TabController _tabController;
   int? _indiceExpandidoUsuario;
   List<Chamado> bancoDeDadosGlobal = [];
+  
 
- @override
-void initState() {
-  super.initState();
-  _buscarChamadosDoBanco(); // Busca inicial
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    
+    // Isso garante que o nome apareça no campo de texto
+    _nome.text = widget.usuario?.nome ?? ''; 
+    
+    _buscarChamadosDoBanco();
+  }
 
-  // Ouvinte em tempo real:
-  Supabase.instance.client
-      .from('chamados')
-      .stream(primaryKey: ['id'])
-      .eq('solicitante', widget.usuario?.login.toLowerCase() ?? '')
-      .listen((data) {
-        _buscarChamadosDoBanco(); // Recarrega sempre que algo mudar no banco
-      });
-}
+  @override
+  void dispose() {
+    // Só damos dispose no que foi inicializado
+    _tabController.dispose();
+    _nome.dispose();
+    _problema.dispose();
+    _ramal.dispose();
+    super.dispose();
+  }
 
   Future<void> _buscarChamadosDoBanco() async {
     try {
-      final loginParaBusca = widget.usuario?.login.toLowerCase() ?? '';
+      final loginParaBusca = widget.usuario?.nome ?? ''; // Tente usar o nome real
 
       final response = await Supabase.instance.client
           .from('chamados')
           .select()
-          .ilike('solicitante', loginParaBusca)
+          .ilike('solicitante', "%$loginParaBusca%") // O % ajuda a achar nomes parciais
           .order('created_at', ascending: false);
 
-      if (response == null) return;
+      if (response is List) {
+        // O segredo para não dar erro de tipo é o .cast<Map<String, dynamic>>()
+        final List<Chamado> lista = response
+            .cast<Map<String, dynamic>>() 
+            .map((item) => Chamado.fromMap(item))
+            .toList();
+
+        setState(() {
+          bancoDeDadosGlobal = lista;
+        });
+      }
 
       // Converter a resposta ANTES de chamar o setState para evitar confusão de blocos
       final listaConvertida = (response as List).map((item) {
@@ -457,7 +503,7 @@ void initState() {
 
         // 3. Retorno do objeto Chamado
         return Chamado(
-          id: item['id']?.toString() ?? 'S/ID',
+          id: item['id']?.toString() ?? '',
           setor: item['setor']?.toString() ?? '',
           solicitante: item['solicitante']?.toString() ?? '',
           problema: item['problema']?.toString() ?? '',
@@ -465,8 +511,8 @@ void initState() {
           status: item['status']?.toString() ?? 'Pendente',
           urgencia: urgencia,
           dataHora: dataTratada,
-          tecnico: item['tecnico']?.toString(), // Pega o nome do técnico/admin que atendeu
-          classificacao: item['classificacao']?.toString(), // Pega a classificação definida
+          tecnico: item['tecnico']?.toString() ?? 'Não atribuído', 
+          classificacao: item['classificacao']?.toString() ?? 'Geral',
           justificativas: List<String>.from(item['justificativas'] ?? []), // Pega as pausas/pendências
           observacoes: List<String>.from(item['observacoes'] ?? []),
           dataFinalizacao: item['data_finalizacao'] != null 
@@ -527,7 +573,7 @@ void initState() {
     }
   }
 
-  void _reabrirChamado(Chamado chamado) {
+    void _reabrirChamado(Chamado chamado) {
     final obsCtrl = TextEditingController();
     showDialog(
       context: context,
@@ -535,42 +581,90 @@ void initState() {
         title: const Text("Reabrir Chamado"),
         content: TextField(
           controller: obsCtrl,
-          decoration: const InputDecoration(labelText: "Motivo da reabertura"),
-          maxLines: 3,
+          decoration: const InputDecoration(labelText: "Justificativa da Reabertura"),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("VOLTAR")),
           ElevatedButton(
-            onPressed: () async { // Adicione async aqui
-              if (obsCtrl.text.isNotEmpty) {
-                final novaObs = "Reaberto por ${widget.usuario?.nome ?? 'usuário'} em ${DateTime.now().day}/${DateTime.now().month}: ${obsCtrl.text}";
-                
-                // 1. Atualiza local
-                setState(() {
-                  chamado.status = 'A iniciar';
-                  chamado.observacoes.add(novaObs);
-                });
+            onPressed: () async {
+              if (obsCtrl.text.isEmpty) return;
 
-                // 2. ATUALIZA NO SUPABASE (Faltava isso!)
-                await Supabase.instance.client.from('chamados').update({
-                  'status': 'A iniciar',
-                  'observacoes': chamado.observacoes,
-                  'data_finalizacao': null,
-                }).eq('id', chamado.id);
+              // 1. Atualiza no Banco de Dados
+              await _atualizarChamadoNoBanco(chamado, {
+                'status': 'Em andamento', // Faz o chamado voltar para a lista do técnico
+                'observacoes': '${chamado.observacoes}\n\nREABERTO: ${obsCtrl.text}'
+              });
 
-                Navigator.pop(ctx);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Por favor, descreva o motivo.")),
-                );
-              }
+              // 2. Atualiza a tela localmente
+              setState(() {
+                chamado.status = 'Em andamento';
+              });
+
+              Navigator.pop(ctx);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Chamado reaberto com sucesso!")),
+              );
             },
-            child: const Text("Enviar"),
-          )
+            child: const Text("REABRIR"),
+          ),
         ],
       ),
     );
   }
+
+        Future<void> _confirmarSolucao(Chamado c) async {
+        setState(() => c.status = 'Concluído');
+        await Supabase.instance.client
+            .from('chamados')
+            .update({'status': 'Concluído'})
+            .eq('id', c.id);
+            
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Obrigado pelo feedback!"), backgroundColor: Colors.green),
+        );
+      }
+
+      Future<void> _cancelarChamado(Chamado c) async {
+      try {
+        // 1. Deleta do Banco de Dados usando o ID
+        await Supabase.instance.client
+            .from('chamados')
+            .delete()
+            .eq('id', c.id);
+
+        // 2. Remove da lista local para sumir da tela na hora
+        setState(() {
+          bancoDeDadosGlobal.removeWhere((item) => item.id == c.id);
+        });
+
+        // 3. Feedback
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Chamado cancelatedo com sucesso!"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } catch (e) {
+        print("Erro ao cancelar: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erro ao cancelar chamado.")),
+        );
+      }
+    }
+    
+    // Caso o botão "Retomar" também peça esta função, adicione-a aqui:
+    Future<void> _atualizarChamadoNoBanco(Chamado c, Map<String, dynamic> dados) async {
+      try {
+        await Supabase.instance.client
+            .from('chamados')
+            .update(dados)
+            .eq('id', c.id);
+      } catch (e) {
+        print("Erro ao atualizar: $e");
+      }
+    }
+  
 
   Widget _buildDashboard() {
     // Acessando a lista global diretamente
@@ -609,34 +703,6 @@ void initState() {
         ],
       ),
     );
-  }
-
-  Future<void> _cancelarChamado(Chamado c) async {
-    try {
-      // 1. Deleta do Banco de Dados
-      await Supabase.instance.client
-          .from('chamados')
-          .delete()
-          .eq('id', c.id);
-
-      // 2. Remove da lista local para a interface atualizar na hora
-      setState(() {
-        bancoDeDadosGlobal.removeWhere((item) => item.id == c.id);
-      });
-
-      // 3. Avisa o usuário
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Chamado cancelado com sucesso!"),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      print("Erro ao cancelar: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Erro ao cancelar chamado.")),
-      );
-    }
   }
 
   @override
@@ -747,6 +813,7 @@ void initState() {
           ],
         ),
       ),
+  
           
           // ABA 2: HISTÓRICO
           RefreshIndicator(
@@ -774,56 +841,80 @@ void initState() {
                       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                       color: c.status == 'Finalizado' ? Colors.grey[200] : const Color(0xFFFFE6CB),
                       child: ExpansionTile(
-                        key: GlobalKey(),
+                        key: GlobalKey(), 
                         title: Text("#${c.id} - ${c.solicitante.toUpperCase()}"),
                         subtitle: Text("Status: ${c.status} | Urgência: ${c.urgencia.name.toUpperCase()}"),
                         leading: CircleAvatar(
-                          backgroundColor: c.status == 'Finalizado' ? Colors.green : Colors.red,
-                          child: Icon(c.status == 'Finalizado' ? Icons.check : Icons.priority_high, color: Colors.white),
+                          backgroundColor: c.status == 'Finalizado' 
+                              ? Colors.green 
+                              : (c.status == 'Em andamento' ? Colors.orange : Colors.red),
+                          child: Icon(
+                              c.status == 'Finalizado' ? Icons.check : Icons.priority_high, 
+                              color: Colors.white
+                          ),
                         ),
                         children: [
                           Padding(
                             padding: const EdgeInsets.all(15.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(width: double.infinity),
-                                Text(
-                                  "📅 Abertura: ${c.dataHora.day.toString().padLeft(2, '0')}/${c.dataHora.month.toString().padLeft(2, '0')}/${c.dataHora.year} às ${c.dataHora.hour.toString().padLeft(2, '0')}:${c.dataHora.minute.toString().padLeft(2, '0')}",
-                                ),
-                                const Divider(),
-                                Text("👨‍🔧 Técnico Responsável: ${c.tecnico ?? 'Aguardando atendimento'}",
-                                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                                Text("🏷️ Classificação: ${c.classificacao ?? 'Em análise'}"),
-                                if (c.justificativas.isNotEmpty) ...[
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year}"),
+                                  Text("👨‍🔧 Técnico: ${c.tecnico ?? 'Aguardando atendimento'}"),
+                                  Text("🏷️ Classificação: ${c.classificacao ?? 'Não definida'}"),
                                   const SizedBox(height: 10),
-                                  const Text("⏳ Observações do Técnico:", style: TextStyle(fontWeight: FontWeight.bold)),
-                                  ...c.justificativas.map((j) => Text("• $j", style: const TextStyle(color: Colors.blueGrey))),
-                                ],
-                                const Divider(),
-                                const Text("📝 Seu Problema relatado:", style: TextStyle(fontWeight: FontWeight.bold)),
-                                Text(c.problema),
-                                if (c.status == 'Finalizado') ...[
-                                  const SizedBox(height: 10),
-                                  ElevatedButton.icon(
-                                    onPressed: () => _reabrirChamado(c),
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text("REABRIR CHAMADO"),
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                                  )
-                                ],
-                                if (c.status == 'Pendente') ...[
-                                  const Divider(),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: () => _cancelarChamado(c),
-                                      icon: const Icon(Icons.cancel, color: Colors.red),
-                                      label: const Text("Cancelar Chamado", style: TextStyle(color: Colors.red)),
+                                  const Text("📝 Problema:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  Text(c.problema),
+                                  
+                                  if (c.justificativas.isNotEmpty) ...[
+                                    const Divider(),
+                                    const Text("💬 Notas do Técnico:", style: TextStyle(fontWeight: FontWeight.bold)),
+                                    ...c.justificativas.map((j) => Text("• $j")),
+                                  ],
+
+                                  // --- BOTÃO DE CANCELAR (Adicionado Aqui) ---
+                                  if (c.status == 'Pendente') ...[
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: () => _cancelarChamado(c),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red[400]),
+                                        icon: const Icon(Icons.delete_forever, color: Colors.white),
+                                        label: const Text("CANCELAR CHAMADO", style: TextStyle(color: Colors.white)),
+                                      ),
                                     ),
-                                  ),
+                                  ],
+
+                                  // CASO 2: Chamado Finalizado pelo técnico (Aguardando aceite do usuário)
+                                  if (c.status == 'Aguardando Confirmação') ...[
+                                  Row(
+                                    children: [
+                                      // Botão SOLUCIONADO
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => _confirmarSolucao(c),
+                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                          icon: const Icon(Icons.check_circle, color: Colors.white),
+                                          label: const Text("SOLUCIONADO", style: TextStyle(color: Colors.white)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      // Botão REABRIR
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => _reabrirChamado(c),
+                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                                          icon: const Icon(Icons.refresh, color: Colors.white),
+                                          label: const Text("REABRIR", style: TextStyle(color: Colors.white)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         ],
@@ -839,7 +930,6 @@ void initState() {
     );
   }
 }
-
 // --- VISÃO DO SUPORTE (T.I.) ---
 class DashboardSuporte extends StatefulWidget {
   final Usuario? usuario;
@@ -1083,6 +1173,39 @@ void initState() {
     }
   }
 
+  Future<void> _processarAtualizacaoChamado(Chamado c, String novoStatus, {String? justificativa}) async {
+  // 1. Identifica quem está logado para gravar como técnico
+  final nomeResponsavel = widget.usuario?.nome ?? 'Sistema';
+
+  // 2. Prepara os dados para o banco
+  Map<String, dynamic> dadosParaAtualizar = {
+    'status': novoStatus,
+    'tecnico': nomeResponsavel, // Garante que o usuário sempre veja quem mexeu
+  };
+
+  // 3. Se houver justificativa (Suporte), adiciona na lista
+  if (justificativa != null) {
+    c.justificativas.add("${DateTime.now().day}/${DateTime.now().month} - $justificativa");
+    dadosParaAtualizar['justificativas'] = c.justificativas;
+  }
+
+  // 4. Se for finalização, coloca a data
+  if (novoStatus == 'Finalizado') {
+    dadosParaAtualizar['data_finalizacao'] = DateTime.now().toIso8601String();
+  }
+
+  try {
+    await _atualizarChamadoNoBanco(c, dadosParaAtualizar);
+    setState(() {
+      c.status = novoStatus;
+      c.tecnico = nomeResponsavel;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chamado: $novoStatus")));
+  } catch (e) {
+    print("Erro ao atualizar: $e");
+  }
+}
+
 
   Widget _buildListaChamadosSuporte(bool finalizados) {
     final lista = bancoDeDadosGlobal
@@ -1113,9 +1236,20 @@ void initState() {
               });
             },
             leading: CircleAvatar(
-              backgroundColor: chamado.status == 'Finalizado'
-                  ? Colors.green
-                  : (chamado.status == 'Em andamento' || chamado.status == 'Aguardando Confirmação' || chamado.status == 'Pendente' ? Colors.amber : Colors.red),
+              backgroundColor: () {
+                switch (chamado.status) {
+                  case 'Finalizado':
+                    return Colors.green;
+                  case 'Em andamento':
+                  case 'Aguardando Confirmação':
+                  case 'A iniciar': // Caso tenha esse status também
+                    return Colors.amber;
+                  case 'Pendente':
+                    return Colors.red;
+                  default:
+                    return Colors.grey; // Cor de segurança caso venha um status novo
+                }
+              }(),
               child: Icon(
                 chamado.status == 'Finalizado' ? Icons.check : Icons.priority_high,
                 color: Colors.white,
@@ -1329,35 +1463,39 @@ void initState() {
   }
 
           // FUNÇÃO QUE RESOLVE O ERRO:
-          void _confirmarTrocaTecnico(dynamic chamado) {
-  final meuNome = widget.usuario?.nome ?? 'Técnico';
+          // FUNÇÃO CENTRALIZADA DENTRO DA STATE
+        void _confirmarTrocaTecnico(dynamic chamado) {
+          final meuNome = widget.usuario?.nome ?? 'Técnico';
 
-  // TRAVA DE SEGURANÇA: Se o técnico for nulo, vazio ou 'null', 
-  // ela atende direto e SAI da função sem mostrar o Dialog.
-  if (chamado.tecnico == null || 
-      chamado.tecnico.toString().isEmpty || 
-      chamado.tecnico.toString() == 'null' ||
-      chamado.tecnico.toString() == 'Não atribuído') {
-    
-    setState(() {
-      chamado.tecnico = meuNome;
-      chamado.status = 'Em andamento';
-    });
-    _atualizarChamadoNoBanco(chamado, {
-      'tecnico': meuNome,
-      'status': 'Em andamento',
-    });
-    return; // Mata a função aqui e não deixa o showDialog rodar
-  }
+          // 1. TRAVA DE SEGURANÇA (Atende direto se estiver vazio)
+          bool estaVazio = chamado.tecnico == null || 
+                          chamado.tecnico.toString().isEmpty || 
+                          chamado.tecnico.toString() == 'null' ||
+                          chamado.tecnico.toString() == 'Não atribuído';
 
-          // Se passou da trava acima, significa que REALMENTE tem outro técnico lá.
+          if (estaVazio) {
+            setState(() {
+              chamado.tecnico = meuNome;
+              chamado.status = 'Em andamento';
+            });
+            _atualizarChamadoNoBanco(chamado, {
+              'tecnico': meuNome,
+              'status': 'Em andamento',
+            });
+            return; // Encerra aqui
+          }
+
+          // 2. SE JÁ TIVER TÉCNICO, ABRE O DIALOG
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text("Assumir Chamado"),
               content: Text("Deseja transferir o atendimento de ${chamado.tecnico} para o seu nome?"),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+                TextButton(
+                  onPressed: () => Navigator.pop(context), 
+                  child: const Text("Cancelar")
+                ),
                 ElevatedButton(
                   onPressed: () {
                     setState(() {
@@ -1381,7 +1519,9 @@ void initState() {
 
 
  class DashboardAdmin extends StatefulWidget {
-  const DashboardAdmin({super.key});
+  final dynamic usuario; // Ou o tipo da sua classe de Usuário
+
+  const DashboardAdmin({super.key, this.usuario});
 
   @override
   State<DashboardAdmin> createState() => _DashboardAdminState();
@@ -1425,10 +1565,9 @@ class _DashboardAdminState extends State<DashboardAdmin> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     
-    _buscarUsuariosDoBanco(); // Isso garante que os dados carreguem no F5
-    
+     
     _tabController.addListener(() {
       setState(() {});
     });
@@ -2662,6 +2801,39 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
     }
   }
 
+  Future<void> _processarAtualizacaoChamado(Chamado c, String novoStatus, {String? justificativa}) async {
+  // 1. Identifica quem está logado para gravar como técnico
+  final nomeResponsavel = widget.usuario?.nome ?? 'Sistema';
+
+  // 2. Prepara os dados para o banco
+  Map<String, dynamic> dadosParaAtualizar = {
+    'status': novoStatus,
+    'tecnico': nomeResponsavel, // Garante que o usuário sempre veja quem mexeu
+  };
+
+  // 3. Se houver justificativa (Suporte), adiciona na lista
+  if (justificativa != null) {
+    c.justificativas.add("${DateTime.now().day}/${DateTime.now().month} - $justificativa");
+    dadosParaAtualizar['justificativas'] = c.justificativas;
+  }
+
+  // 4. Se for finalização, coloca a data
+  if (novoStatus == 'Finalizado') {
+    dadosParaAtualizar['data_finalizacao'] = DateTime.now().toIso8601String();
+  }
+
+  try {
+    await _atualizarChamadoNoBanco(c, dadosParaAtualizar);
+    setState(() {
+      c.status = novoStatus;
+      c.tecnico = nomeResponsavel;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chamado: $novoStatus")));
+  } catch (e) {
+    print("Erro ao atualizar: $e");
+  }
+}
+
   Widget _buildListaChamadosAdmin(bool finalizados) {
   final lista = bancoDeDadosGlobal
       .where((c) => finalizados ? c.status == 'Finalizado' : c.status != 'Finalizado')
@@ -2804,15 +2976,20 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
                           ),
                         ],
 
-                        // --- BOTÃO RETOMAR (Quando está Pendente) ---
+                       // --- BOTÃO RETOMAR (Corrigido) ---
                         if (c.status == 'Pendente') ...[
-                          Expanded(
+                          const SizedBox(height: 10), // Dá um espacinho entre o texto e o botão
+                          SizedBox(
+                            width: double.infinity, // Isso faz o botão ocupar a largura toda, alinhando o layout
                             child: ElevatedButton(
                               onPressed: () async {
                                 setState(() => c.status = 'Em andamento');
                                 await _atualizarChamadoNoBanco(c, {'status': 'Em andamento'});
                               },
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
                               child: const Text("Retomar", style: TextStyle(color: Colors.white)),
                             ),
                           ),
