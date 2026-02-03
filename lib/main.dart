@@ -1371,27 +1371,43 @@ void initState() {
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           // --- STATUS: A INICIAR ---
-                          if (chamado.status == 'A iniciar')
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  final meuNome = widget.usuario?.nome ?? 'Técnico';
-                                  if (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído' || chamado.tecnico == 'null') {
-                                    setState(() {
-                                      chamado.status = 'Em andamento';
-                                      chamado.tecnico = meuNome;
-                                    });
-                                    _atualizarChamadoNoBanco(chamado, {'status': 'Em andamento', 'tecnico': meuNome});
-                                  } else {
-                                    _confirmarTrocaTecnico(chamado);
-                                  }
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: (chamado.tecnico == null || chamado.tecnico!.isEmpty) ? Colors.blue : Colors.blueGrey,
-                                ),
-                                child: Text((chamado.tecnico == null || chamado.tecnico!.isEmpty) ? "Atender" : "Assumir", style: const TextStyle(color: Colors.white)),
+                          if (statusUpper == 'A INICIAR' || chamado.status == 'A iniciar') 
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                final meuNome = widget.usuario?.nome ?? 'Técnico';
+                                
+                                // Se não tem técnico ou está como 'Não atribuído'
+                                if (chamado.tecnico == null || 
+                                    chamado.tecnico!.isEmpty || 
+                                    chamado.tecnico == 'Não atribuído' || 
+                                    chamado.tecnico == 'null') {
+                                  
+                                  setState(() {
+                                    chamado.status = 'Em andamento';
+                                    chamado.tecnico = meuNome;
+                                  });
+
+                                  _atualizarChamadoNoBanco(chamado, {
+                                    'status': 'Em andamento',
+                                    'tecnico': meuNome,
+                                  });
+                                } else {
+                                  // Se já tem outro técnico, abre o aviso para trocar
+                                  _confirmarTrocaTecnico(chamado);
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') 
+                                    ? Colors.blue 
+                                    : Colors.blueGrey,
+                              ),
+                              child: Text(
+                                (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') ? "Atender" : "Assumir", 
+                                style: const TextStyle(color: Colors.white)
                               ),
                             ),
+                          ),
 
                           // --- STATUS: EM ANDAMENTO ---
                           if (chamado.status == 'Em andamento') ...[
