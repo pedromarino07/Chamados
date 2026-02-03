@@ -671,6 +671,8 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
           bancoDeDadosGlobal.removeWhere((item) => item.id == c.id);
         });
 
+        
+
         // 3. Feedback
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -914,7 +916,7 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year}"),
+                              Text("📅 Abertura: ${c.dataHora.toLocal().day.toString().padLeft(2, '0')}/${c.dataHora.toLocal().month.toString().padLeft(2, '0')}/${c.dataHora.toLocal().year} às ${c.dataHora.toLocal().hour.toString().padLeft(2, '0')}:${c.dataHora.toLocal().minute.toString().padLeft(2, '0')}"),
                               Text("👨‍🔧 Técnico: ${c.tecnico ?? 'Aguardando atendimento'}"),
                               const Divider(),
                               const Text("📝 Problema Relatado:", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -937,6 +939,20 @@ class _DashboardUsuarioState extends State<DashboardUsuario> with SingleTickerPr
                                   child: Text(obs, style: const TextStyle(fontSize: 12)),
                                 )).toList(),
                               ],
+
+                              if (c.status == 'Pendente' || c.status == 'Em andamento') 
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _cancelarChamado(c),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
+                                  icon: const Icon(Icons.delete_forever, color: Colors.white),
+                                  label: const Text("CANCELAR CHAMADO", style: TextStyle(color: Colors.white)),
+                                ),
+                              ),
+                            ),
 
                               // Botões de Confirmação (Somente se aguardando usuário)
                               if (c.status == 'Aguardando Confirmação') ...[
@@ -1175,6 +1191,8 @@ void initState() {
   Widget build(BuildContext context) {
     final bool isHardware = widget.usuario?.setorTecnico == SetorTecnico.hardwares;
     final bool isSistemas = widget.usuario?.setorTecnico == SetorTecnico.sistemas;
+    final chamadosAtivos = bancoDeDadosGlobal.where((c) => c.status != 'Concluído').toList();
+    final chamadosHistorico = bancoDeDadosGlobal.where((c) => c.status == 'Concluído').toList();
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -1213,7 +1231,10 @@ void initState() {
           ),
         ),
         body: TabBarView(
-          children: [ _buildListaChamadosSuporte(false), _buildListaChamadosSuporte(true), ]
+          children: [ 
+            _buildListaChamadosSuporte(false), // Aba de Ativos
+            _buildListaChamadosSuporte(true),  // Aba de Histórico
+          ],
         ),
       ),
     );
@@ -1267,15 +1288,25 @@ void initState() {
 }
 
 
-  Widget _buildListaChamadosSuporte(bool finalizados) {
-    final lista = bancoDeDadosGlobal
-        .where((c) => finalizados ? c.status == 'Finalizado' : c.status != 'Finalizado')
-        .toList();
+    Widget _buildListaChamadosSuporte(bool finalizados) {
+        final lista = bancoDeDadosGlobal.where((c) {
+        final st = c.status.toUpperCase().trim();
+        
+        // Definimos o que é um chamado "encerrado"
+        bool encerrado = st.contains('CONCLUÍDO') || 
+                        st.contains('CONCLUIDO') || 
+                        st.contains('FINALIZADO');
 
-    return ListView.builder(
-      itemCount: lista.length,
-      itemBuilder: (ctx, i) {
-        final chamado = lista[i];
+        // Se a aba pede finalizados (true), retorna os encerrados.
+        // Se a aba pede ativos (false), retorna os NÃO encerrados (!).
+        return finalizados ? encerrado : !encerrado;
+      }).toList();
+
+      // Agora usamos a variável 'lista' que criamos acima
+      return ListView.builder(
+        itemCount: lista.length,
+        itemBuilder: (ctx, i) {
+          final chamado = lista[i];
         
         // --- PADRONIZAÇÃO DE STATUS ---
         String statusUpper = chamado.status.toUpperCase().trim();
@@ -1325,7 +1356,7 @@ void initState() {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // HORA E DATA RESTAURADAS
-                    Text("📅 Abertura: ${chamado.dataHora.day}/${chamado.dataHora.month}/${chamado.dataHora.year} às ${chamado.dataHora.hour}:${chamado.dataHora.minute.toString().padLeft(2, '0')}"),
+                    Text("📅 Abertura: ${chamado.dataHora.toLocal().day.toString().padLeft(2, '0')}/${chamado.dataHora.toLocal().month.toString().padLeft(2, '0')}/${chamado.dataHora.toLocal().year} às ${chamado.dataHora.toLocal().hour.toString().padLeft(2, '0')}:${chamado.dataHora.toLocal().minute.toString().padLeft(2, '0')}"),
                     
                     if (chamado.dataFinalizacao != null)
                       Text("🏁 Finalizado em: ${chamado.dataFinalizacao!.day}/${chamado.dataFinalizacao!.month}/${chamado.dataFinalizacao!.year} às ${chamado.dataFinalizacao!.hour}:${chamado.dataFinalizacao!.minute.toString().padLeft(2, '0')}"),
@@ -1363,24 +1394,28 @@ void initState() {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        // BOTÃO ATENDER (CORRIGIDO)
-                        if (statusUpper == 'A INICIAR') 
+                        // BOTÃO ATENDER (CORRIGIDO: Aparece se contiver INICIAR ou for PENDENTE)
+                        if (statusUpper.contains('INICIAR') || statusUpper == 'PENDENTE') 
                           Expanded(
                             child: ElevatedButton(
                               onPressed: () => _confirmarTrocaTecnico(chamado),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') 
+                                backgroundColor: (chamado.tecnico == null || 
+                                                  chamado.tecnico!.isEmpty || 
+                                                  chamado.tecnico == 'Não atribuído') 
                                     ? Colors.blue 
                                     : Colors.blueGrey,
                               ),
                               child: Text(
-                                (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') ? "Atender" : "Assumir", 
+                                (chamado.tecnico == null || chamado.tecnico!.isEmpty || chamado.tecnico == 'Não atribuído') 
+                                    ? "Atender" 
+                                    : "Assumir", 
                                 style: const TextStyle(color: Colors.white)
                               ),
                             ),
                           ),
 
-                        // BOTÕES EM ANDAMENTO
+                        // BOTÕES EM ANDAMENTO (Continua igual...)
                         if (statusUpper == 'EM ANDAMENTO') ...[
                           if (isResponsavel || isAdmin) ...[
                             Expanded(
@@ -2874,8 +2909,7 @@ finalizados = filtrados.where((c) => c.status == 'Finalizado').length;
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                      "📅 Abertura: ${c.dataHora.day}/${c.dataHora.month}/${c.dataHora.year} às ${c.dataHora.hour}:${c.dataHora.minute.toString().padLeft(2, '0')}"),
+                  Text("📅 Abertura: ${c.dataHora.toLocal().day.toString().padLeft(2, '0')}/${c.dataHora.toLocal().month.toString().padLeft(2, '0')}/${c.dataHora.toLocal().year} às ${c.dataHora.toLocal().hour.toString().padLeft(2, '0')}:${c.dataHora.toLocal().minute.toString().padLeft(2, '0')}"),
                   if (c.dataFinalizacao != null)
                     Text("🏁 Finalizado em: ${c.dataFinalizacao!.day}/${c.dataFinalizacao!.month}/${c.dataFinalizacao!.year} às ${c.dataFinalizacao!.hour}:${c.dataFinalizacao!.minute.toString().padLeft(2, '0')}"),
                   Text("🏷️ Classificação: ${c.classificacao ?? 'Não definida'}"),
